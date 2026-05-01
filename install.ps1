@@ -83,14 +83,15 @@ else {
     Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
 
     Start-Process `
-        -FilePath $PowerShellExe `
-        -ArgumentList @(
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "`"$MainScriptPath`""
-        ) `
-        -Verb RunAs `
-        -Wait
+    -FilePath $PowerShellExe `
+    -ArgumentList @(
+        "-NoExit",
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "`"$MainScriptPath`""
+    ) `
+    -Verb RunAs `
+    -Wait
 }
 
 Write-Host ""
