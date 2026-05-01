@@ -9,8 +9,8 @@ $ErrorActionPreference = "Stop"
 # Edit here
 # ==============================
 
-$RepoOwner = "<USER>"
-$RepoName  = "<REPO>"
+$RepoOwner = "naixt1478"
+$RepoName  = "ContestSetup"
 $Branch    = "main"
 
 $MainScriptName = "setup-contest-env.ps1"
