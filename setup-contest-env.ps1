@@ -115,7 +115,8 @@ $AllowList = @(
     "python.org",
     "www.python.org",
     "winget.azureedge.net",
-    "cdn.winget.microsoft.com"
+    "cdn.winget.microsoft.com",
+    "litmus.jbnu.ac.kr"
 )
 
 # ============================================================
