@@ -1,18 +1,26 @@
 # setup-contest-env.ps1
 # Windows Contest Environment Setup
 #
-# Installs:
+# Installs and configures:
 # - Visual Studio Code
+# - Reset existing VS Code settings/extensions before reinstall
+# - VS Code extensions:
+#     formulahendry.code-runner
+#     ms-vscode.cpptools
+#     ms-python.python
+#     ms-python.debugpy
 # - MSYS2
 # - Latest MSYS2 UCRT64 GCC/G++ supporting C++14, C++17, C++20
 # - GDB, Make, CMake, Ninja
 # - Python 3.10.12
 # - cat
+# - Code Runner settings
+# - VS Code debug settings for C/C++ and Python
 # - AI hosts blocklist
 #
 # Java is intentionally excluded.
 #
-# Commands:
+# Commands after setup:
 # - g++14
 # - g++17
 # - g++20
@@ -27,10 +35,12 @@
 # Options:
 #   -SkipAiBlock
 #   -RestoreHosts
+#   -KeepVSCode
 
 param(
     [switch]$SkipAiBlock,
-    [switch]$RestoreHosts
+    [switch]$RestoreHosts,
+    [switch]$KeepVSCode
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,9 +51,9 @@ try {
 catch {
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Paths
-# ------------------------------------------------------------
+# ============================================================
 
 $Root        = "C:\CPTools"
 $ToolBin     = "$Root\bin"
@@ -71,7 +81,6 @@ $NoAiHostsUrl   = "https://raw.githubusercontent.com/laylavish/uBlockOrigin-HUGE
 $BeginMarker = "# >>> CP_CONTEST_AI_BLOCKLIST_BEGIN"
 $EndMarker   = "# <<< CP_CONTEST_AI_BLOCKLIST_END"
 
-# Keep these domains usable during setup and updates.
 $AllowList = @(
     "localhost",
     "localhost.localdomain",
@@ -88,13 +97,12 @@ $AllowList = @(
     "python.org",
     "www.python.org",
     "winget.azureedge.net",
-    "cdn.winget.microsoft.com",
-    "litmus.jbnu.ac.kr"
+    "cdn.winget.microsoft.com"
 )
 
-# ------------------------------------------------------------
+# ============================================================
 # Helper functions
-# ------------------------------------------------------------
+# ============================================================
 
 function Write-Section {
     param([string]$Message)
@@ -160,6 +168,10 @@ function Assert-Admin {
         $Args += "-RestoreHosts"
     }
 
+    if ($KeepVSCode) {
+        $Args += "-KeepVSCode"
+    }
+
     Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
 
     Start-Process `
@@ -169,6 +181,44 @@ function Assert-Admin {
         -Wait
 
     exit
+}
+
+function Write-TextUtf8NoBom {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+
+    $Encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $Encoding)
+}
+
+function Write-LinesUtf8NoBom {
+    param(
+        [string]$Path,
+        [string[]]$Lines
+    )
+
+    $Content = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
+    Write-TextUtf8NoBom -Path $Path -Content $Content
+}
+
+function Invoke-DownloadFile {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    }
+    catch {
+    }
+
+    Invoke-WebRequest `
+        -Uri $Url `
+        -OutFile $OutFile `
+        -UseBasicParsing
 }
 
 function Add-UserPathFront {
@@ -202,22 +252,78 @@ function Add-UserPathFront {
     Write-Host "PATH added: $PathToAdd" -ForegroundColor Green
 }
 
-function Invoke-DownloadFile {
+function Test-WingetHelpSupports {
     param(
-        [string]$Url,
-        [string]$OutFile
+        [string]$Command,
+        [string]$Option
     )
 
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $HelpText = (& winget $Command --help 2>$null) -join "`n"
+        return $HelpText -match [regex]::Escape($Option)
     }
     catch {
+        return $false
+    }
+}
+
+function Invoke-Winget {
+    param([string[]]$Arguments)
+
+    & winget @Arguments
+    return $LASTEXITCODE
+}
+
+function Update-WingetClient {
+    Write-Section "Update winget / App Installer"
+
+    if (-not (Test-CommandExists "winget")) {
+        throw "winget not found. Install or update App Installer from Microsoft Store, then run again."
     }
 
-    Invoke-WebRequest `
-        -Uri $Url `
-        -OutFile $OutFile `
-        -UseBasicParsing
+    Write-Host "Current winget version:"
+    winget --version
+
+    $AppInstaller = Get-AppxPackage Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue
+
+    if ($AppInstaller) {
+        Write-Host "Current App Installer version: $($AppInstaller.Version)"
+    }
+    else {
+        Write-Warning "Microsoft.DesktopAppInstaller package was not found by Get-AppxPackage."
+    }
+
+    Write-Host "Trying to update App Installer / winget..."
+
+    $Args = @(
+        "upgrade",
+        "Microsoft.AppInstaller",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements"
+    )
+
+    if (Test-WingetHelpSupports -Command "upgrade" -Option "--disable-interactivity") {
+        $Args += "--disable-interactivity"
+    }
+
+    try {
+        $Exit = Invoke-Winget -Arguments $Args
+
+        if ($Exit -eq 0) {
+            Write-Host "winget update completed or already up to date." -ForegroundColor Green
+        }
+        else {
+            Write-Warning "winget update returned exit code $Exit. Continuing with compatibility mode."
+        }
+    }
+    catch {
+        Write-Warning "winget update failed. Continuing with compatibility mode."
+        Write-Warning $_.Exception.Message
+    }
+
+    Write-Host "winget version after update attempt:"
+    winget --version
 }
 
 function Install-WingetPackage {
@@ -228,27 +334,83 @@ function Install-WingetPackage {
 
     Write-Host "Installing or checking: $NameForLog"
 
-    & winget install `
-        --id $Id `
-        --exact `
-        --source winget `
-        --silent `
-        --accept-package-agreements `
-        --accept-source-agreements `
-        --disable-interactivity
+    $Args = @(
+        "install",
+        "--id", $Id,
+        "--exact",
+        "--source", "winget",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements"
+    )
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "winget returned exit code $LASTEXITCODE for $NameForLog. Continuing and verifying later."
+    if (Test-WingetHelpSupports -Command "install" -Option "--disable-interactivity") {
+        $Args += "--disable-interactivity"
     }
-    else {
-        Write-Host "$NameForLog install/check completed." -ForegroundColor Green
+
+    $Exit = Invoke-Winget -Arguments $Args
+
+    if ($Exit -ne 0) {
+        Write-Warning "winget returned exit code $Exit for $NameForLog."
+
+        $ListOutput = (& winget list --id $Id --exact 2>$null) -join "`n"
+
+        if ($ListOutput -match [regex]::Escape($Id)) {
+            Write-Host "$NameForLog is already installed. Continuing." -ForegroundColor Green
+            return
+        }
+
+        throw "Failed to install $NameForLog by winget. Package id: $Id"
     }
+
+    Write-Host "$NameForLog install/check completed." -ForegroundColor Green
 }
 
-function Invoke-MsysBash {
-    param([string]$Command)
+function Uninstall-WingetPackageIfExists {
+    param(
+        [string]$Id,
+        [string]$NameForLog
+    )
 
-    & $MsysBash -lc $Command
+    Write-Host "Checking installed package: $NameForLog"
+
+    $ListOutput = (& winget list --id $Id --exact 2>$null) -join "`n"
+
+    if ($ListOutput -notmatch [regex]::Escape($Id)) {
+        Write-Host "$NameForLog is not installed by winget or not detected. Continuing."
+        return
+    }
+
+    Write-Host "Uninstalling: $NameForLog"
+
+    $Args = @(
+        "uninstall",
+        "--id", $Id,
+        "--exact",
+        "--silent"
+    )
+
+    if (Test-WingetHelpSupports -Command "uninstall" -Option "--source") {
+        $Args += "--source"
+        $Args += "winget"
+    }
+
+    if (Test-WingetHelpSupports -Command "uninstall" -Option "--accept-source-agreements") {
+        $Args += "--accept-source-agreements"
+    }
+
+    if (Test-WingetHelpSupports -Command "uninstall" -Option "--disable-interactivity") {
+        $Args += "--disable-interactivity"
+    }
+
+    $Exit = Invoke-Winget -Arguments $Args
+
+    if ($Exit -ne 0) {
+        Write-Warning "winget uninstall returned exit code $Exit for $NameForLog. Continuing with folder cleanup."
+    }
+    else {
+        Write-Host "$NameForLog uninstalled." -ForegroundColor Green
+    }
 }
 
 function Get-VSCodeCommandPath {
@@ -277,6 +439,144 @@ function Get-VSCodeCommandPath {
     return $null
 }
 
+function Stop-VSCodeProcesses {
+    Write-Host "Closing VS Code processes if running..."
+
+    $Names = @(
+        "Code",
+        "Code - Insiders",
+        "VSCodium"
+    )
+
+    foreach ($Name in $Names) {
+        Get-Process -Name $Name -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+
+    Start-Sleep -Seconds 2
+}
+
+function Backup-And-RemovePath {
+    param(
+        [string]$Path,
+        [string]$BackupRoot
+    )
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $Leaf = Split-Path $Path -Leaf
+    $SafeLeaf = $Leaf -replace '[\\/:*?"<>|]', '_'
+    $BackupTarget = Join-Path $BackupRoot $SafeLeaf
+
+    Write-Host "Backing up: $Path"
+    Copy-Item -Path $Path -Destination $BackupTarget -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Host "Removing: $Path"
+    Remove-Item -Path $Path -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Reset-VSCodeCompletely {
+    Write-Section "Reset existing VS Code"
+
+    Stop-VSCodeProcesses
+
+    $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $VSCodeBackupRoot = Join-Path $Root "backup\vscode-$Timestamp"
+
+    New-Item -ItemType Directory -Force -Path $VSCodeBackupRoot | Out-Null
+
+    Write-Host "VS Code backup directory:"
+    Write-Host "  $VSCodeBackupRoot"
+
+    $CodeCmdBeforeReset = Get-VSCodeCommandPath
+
+    if ($CodeCmdBeforeReset) {
+        try {
+            & $CodeCmdBeforeReset --list-extensions |
+                Set-Content -Encoding UTF8 "$VSCodeBackupRoot\extensions-before-reset.txt"
+
+            Write-Host "Extension list backed up." -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to backup extension list. Continuing."
+        }
+    }
+
+    $PathsToBackupAndRemove = @(
+        "$env:APPDATA\Code",
+        "$env:LOCALAPPDATA\Code",
+        "$env:USERPROFILE\.vscode"
+    )
+
+    foreach ($Path in $PathsToBackupAndRemove) {
+        Backup-And-RemovePath -Path $Path -BackupRoot $VSCodeBackupRoot
+    }
+
+    Uninstall-WingetPackageIfExists -Id "Microsoft.VisualStudioCode" -NameForLog "Visual Studio Code"
+
+    $InstallFolders = @(
+        "$env:LOCALAPPDATA\Programs\Microsoft VS Code",
+        "$env:ProgramFiles\Microsoft VS Code",
+        "${env:ProgramFiles(x86)}\Microsoft VS Code"
+    )
+
+    foreach ($Folder in $InstallFolders) {
+        if (Test-Path $Folder) {
+            Write-Host "Removing remaining VS Code install folder: $Folder"
+            Remove-Item -Path $Folder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-Host "VS Code reset completed." -ForegroundColor Green
+}
+
+function Install-VSCodeExtensions {
+    Write-Section "Install VS Code extensions"
+
+    $CodeCmd = $null
+    $WaitCount = 0
+
+    while (-not $CodeCmd -and $WaitCount -lt 60) {
+        $CodeCmd = Get-VSCodeCommandPath
+        if (-not $CodeCmd) {
+            Start-Sleep -Seconds 2
+            $WaitCount++
+        }
+    }
+
+    if (-not $CodeCmd) {
+        throw "code.cmd not found after VS Code installation."
+    }
+
+    $Extensions = @(
+        "formulahendry.code-runner",
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "ms-python.debugpy"
+    )
+
+    foreach ($Extension in $Extensions) {
+        Write-Host "Installing VS Code extension: $Extension"
+        & $CodeCmd --install-extension $Extension --force
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install VS Code extension: $Extension"
+        }
+    }
+
+    $InstalledExtensions = (& $CodeCmd --list-extensions) -join "`n"
+
+    foreach ($Extension in $Extensions) {
+        if ($InstalledExtensions -notmatch [regex]::Escape($Extension)) {
+            throw "Extension verification failed: $Extension"
+        }
+    }
+
+    Write-Host "VS Code extensions installed and verified." -ForegroundColor Green
+}
+
 function Set-JsonProperty {
     param(
         [Parameter(Mandatory = $true)] $Object,
@@ -290,6 +590,12 @@ function Set-JsonProperty {
     else {
         $Object | Add-Member -MemberType NoteProperty -Name $Name -Value $Value
     }
+}
+
+function Invoke-MsysBash {
+    param([string]$Command)
+
+    & $MsysBash -lc $Command
 }
 
 function Assert-Output {
@@ -307,26 +613,6 @@ function Assert-Output {
     }
 
     Write-Host "$Name test passed: $A" -ForegroundColor Green
-}
-
-function Write-TextUtf8NoBom {
-    param(
-        [string]$Path,
-        [string]$Content
-    )
-
-    $Encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, $Content, $Encoding)
-}
-
-function Write-LinesUtf8NoBom {
-    param(
-        [string]$Path,
-        [string[]]$Lines
-    )
-
-    $Content = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
-    Write-TextUtf8NoBom -Path $Path -Content $Content
 }
 
 function Restore-HostsBackup {
@@ -439,9 +725,9 @@ function Apply-AiHostsBlock {
     Write-Host "Close and reopen browsers after this script finishes." -ForegroundColor Yellow
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # 0. Admin and restore mode
-# ------------------------------------------------------------
+# ============================================================
 
 Assert-Admin
 
@@ -450,9 +736,9 @@ if ($RestoreHosts) {
     exit
 }
 
-# ------------------------------------------------------------
-# 1. Folders
-# ------------------------------------------------------------
+# ============================================================
+# 1. Create folders
+# ============================================================
 
 Write-Section "1. Create folders"
 
@@ -461,9 +747,9 @@ New-Item -ItemType Directory -Force -Path $ToolBin     | Out-Null
 New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 New-Item -ItemType Directory -Force -Path $TestDir     | Out-Null
 
-# ------------------------------------------------------------
-# 2. winget
-# ------------------------------------------------------------
+# ============================================================
+# 2. Check and update winget
+# ============================================================
 
 Write-Section "2. Check winget"
 
@@ -474,14 +760,26 @@ if (-not (Test-CommandExists "winget")) {
 winget --version
 Write-Host "winget found." -ForegroundColor Green
 
-# ------------------------------------------------------------
-# 3. Install VS Code and MSYS2
-# ------------------------------------------------------------
+Update-WingetClient
 
-Write-Section "3. Install VS Code and MSYS2"
+# ============================================================
+# 3. Reset and install VS Code / MSYS2
+# ============================================================
+
+Write-Section "3. Reset and install VS Code / MSYS2"
+
+if ($KeepVSCode) {
+    Write-Host "VS Code reset skipped by -KeepVSCode." -ForegroundColor Yellow
+}
+else {
+    Reset-VSCodeCompletely
+}
 
 Install-WingetPackage -Id "Microsoft.VisualStudioCode" -NameForLog "Visual Studio Code"
-Install-WingetPackage -Id "MSYS2.MSYS2"              -NameForLog "MSYS2"
+
+Install-VSCodeExtensions
+
+Install-WingetPackage -Id "MSYS2.MSYS2" -NameForLog "MSYS2"
 
 $WaitCount = 0
 while (-not (Test-Path $MsysBash) -and $WaitCount -lt 60) {
@@ -495,9 +793,9 @@ if (-not (Test-Path $MsysBash)) {
 
 Write-Host "MSYS2 found: $MsysBash" -ForegroundColor Green
 
-# ------------------------------------------------------------
-# 4. MSYS2 update and packages
-# ------------------------------------------------------------
+# ============================================================
+# 4. Install MSYS2 packages
+# ============================================================
 
 Write-Section "4. Install MSYS2 packages"
 
@@ -539,15 +837,19 @@ if (-not (Test-Path "$UcrtBin\gcc.exe")) {
     throw "gcc.exe not found: $UcrtBin\gcc.exe"
 }
 
+if (-not (Test-Path "$UcrtBin\gdb.exe")) {
+    throw "gdb.exe not found: $UcrtBin\gdb.exe"
+}
+
 if (-not (Test-Path $MsysCat)) {
     throw "cat.exe not found: $MsysCat"
 }
 
-Write-Host "MSYS2 UCRT64 GCC installed." -ForegroundColor Green
+Write-Host "MSYS2 UCRT64 GCC/GDB installed." -ForegroundColor Green
 
-# ------------------------------------------------------------
+# ============================================================
 # 5. Install Python 3.10.12
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "5. Install Python 3.10.12"
 
@@ -572,9 +874,9 @@ if (-not (Test-Path $PythonExe)) {
 & $PythonExe --version
 Write-Host "Python installed: $PythonExe" -ForegroundColor Green
 
-# ------------------------------------------------------------
+# ============================================================
 # 6. Create command wrappers
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "6. Create command wrappers"
 
@@ -622,9 +924,9 @@ Write-Host "  gcc"
 Write-Host "  python3"
 Write-Host "  cat"
 
-# ------------------------------------------------------------
-# 7. PATH
-# ------------------------------------------------------------
+# ============================================================
+# 7. Configure PATH
+# ============================================================
 
 Write-Section "7. Configure PATH"
 
@@ -645,21 +947,16 @@ foreach ($Candidate in $VSCodeBinCandidates) {
     }
 }
 
-# ------------------------------------------------------------
-# 8. VS Code extensions and settings
-# ------------------------------------------------------------
+# ============================================================
+# 8. Configure VS Code global settings
+# ============================================================
 
 Write-Section "8. Configure VS Code"
 
 $CodeCmd = Get-VSCodeCommandPath
 
-if ($CodeCmd) {
-    & $CodeCmd --install-extension ms-vscode.cpptools --force
-    & $CodeCmd --install-extension ms-vscode.cmake-tools --force
-    Write-Host "VS Code C/C++ extensions installed." -ForegroundColor Green
-}
-else {
-    Write-Warning "code.cmd not found. Open VS Code once and install extension manually: ms-vscode.cpptools"
+if (-not $CodeCmd) {
+    throw "code.cmd not found. VS Code installation may have failed."
 }
 
 $SettingsDir = "$env:APPDATA\Code\User"
@@ -700,20 +997,40 @@ $MsysProfile = [PSCustomObject]@{
 
 Set-JsonProperty -Object $Profiles -Name "MSYS2 UCRT64" -Value $MsysProfile
 
+$CodeRunnerExecutorMap = [PSCustomObject]@{
+    cpp    = 'cd $dir && g++17 -g -O0 -Wall -Wextra $fileName -o $fileNameWithoutExt.exe && .\$fileNameWithoutExt.exe'
+    c      = 'cd $dir && gcc -std=c11 -g -O0 -Wall -Wextra $fileName -o $fileNameWithoutExt.exe && .\$fileNameWithoutExt.exe'
+    python = 'python3 -u $fullFileName'
+}
+
 Set-JsonProperty -Object $Settings -Name "terminal.integrated.profiles.windows"       -Value $Profiles
 Set-JsonProperty -Object $Settings -Name "terminal.integrated.defaultProfile.windows" -Value "PowerShell"
+
 Set-JsonProperty -Object $Settings -Name "C_Cpp.default.compilerPath"                -Value "$UcrtBin\g++.exe"
 Set-JsonProperty -Object $Settings -Name "C_Cpp.default.cppStandard"                 -Value "c++17"
 Set-JsonProperty -Object $Settings -Name "C_Cpp.default.cStandard"                   -Value "c11"
 Set-JsonProperty -Object $Settings -Name "C_Cpp.default.intelliSenseMode"             -Value "windows-gcc-x64"
 
+Set-JsonProperty -Object $Settings -Name "code-runner.executorMap"          -Value $CodeRunnerExecutorMap
+Set-JsonProperty -Object $Settings -Name "code-runner.runInTerminal"        -Value $true
+Set-JsonProperty -Object $Settings -Name "code-runner.fileDirectoryAsCwd"   -Value $true
+Set-JsonProperty -Object $Settings -Name "code-runner.saveFileBeforeRun"    -Value $true
+Set-JsonProperty -Object $Settings -Name "code-runner.clearPreviousOutput"  -Value $true
+Set-JsonProperty -Object $Settings -Name "code-runner.showExecutionMessage" -Value $false
+Set-JsonProperty -Object $Settings -Name "code-runner.preserveFocus"        -Value $false
+Set-JsonProperty -Object $Settings -Name "code-runner.ignoreSelection"      -Value $true
+Set-JsonProperty -Object $Settings -Name "code-runner.enableAppInsights"    -Value $false
+
+Set-JsonProperty -Object $Settings -Name "python.defaultInterpreterPath"       -Value "$PythonExe"
+Set-JsonProperty -Object $Settings -Name "python.terminal.activateEnvironment" -Value $false
+
 $Settings | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 $SettingsPath
 
 Write-Host "VS Code settings configured." -ForegroundColor Green
 
-# ------------------------------------------------------------
+# ============================================================
 # 9. Create VS Code CP template
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "9. Create VS Code CP template"
 
@@ -752,18 +1069,18 @@ $TasksJson = [ordered]@{
     version = "2.0.0"
     tasks = @(
         [ordered]@{
-            label = "build C++14"
+            label = "build debug C++14"
             type = "shell"
             command = "g++14"
-            args = @("-O2", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
+            args = @("-g", "-O0", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
             group = "build"
             problemMatcher = @('$gcc')
         },
         [ordered]@{
-            label = "build C++17"
+            label = "build debug C++17"
             type = "shell"
             command = "g++17"
-            args = @("-O2", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
+            args = @("-g", "-O0", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
             group = [ordered]@{
                 kind = "build"
                 isDefault = $true
@@ -771,18 +1088,18 @@ $TasksJson = [ordered]@{
             problemMatcher = @('$gcc')
         },
         [ordered]@{
-            label = "build C++20"
+            label = "build debug C++20"
             type = "shell"
             command = "g++20"
-            args = @("-O2", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
+            args = @("-g", "-O0", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
             group = "build"
             problemMatcher = @('$gcc')
         },
         [ordered]@{
-            label = "build C11"
+            label = "build debug C11"
             type = "shell"
             command = "gcc"
-            args = @("-std=c11", "-O2", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
+            args = @("-std=c11", "-g", "-O0", "-Wall", "-Wextra", '${file}', "-o", '${fileDirname}\${fileBasenameNoExtension}.exe')
             group = "build"
             problemMatcher = @('$gcc')
         },
@@ -806,6 +1123,107 @@ $TasksJson = [ordered]@{
 
 $TasksJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 "$VSCodeDir\tasks.json"
 
+$LaunchJson = [ordered]@{
+    version = "0.2.0"
+    configurations = @(
+        [ordered]@{
+            name = "Debug C++14 active file"
+            type = "cppdbg"
+            request = "launch"
+            program = '${fileDirname}\${fileBasenameNoExtension}.exe'
+            args = @()
+            stopAtEntry = $false
+            cwd = '${fileDirname}'
+            environment = @()
+            externalConsole = $false
+            MIMode = "gdb"
+            miDebuggerPath = "C:/msys64/ucrt64/bin/gdb.exe"
+            preLaunchTask = "build debug C++14"
+            setupCommands = @(
+                [ordered]@{
+                    description = "Enable pretty-printing for gdb"
+                    text = "-enable-pretty-printing"
+                    ignoreFailures = $true
+                }
+            )
+        },
+        [ordered]@{
+            name = "Debug C++17 active file"
+            type = "cppdbg"
+            request = "launch"
+            program = '${fileDirname}\${fileBasenameNoExtension}.exe'
+            args = @()
+            stopAtEntry = $false
+            cwd = '${fileDirname}'
+            environment = @()
+            externalConsole = $false
+            MIMode = "gdb"
+            miDebuggerPath = "C:/msys64/ucrt64/bin/gdb.exe"
+            preLaunchTask = "build debug C++17"
+            setupCommands = @(
+                [ordered]@{
+                    description = "Enable pretty-printing for gdb"
+                    text = "-enable-pretty-printing"
+                    ignoreFailures = $true
+                }
+            )
+        },
+        [ordered]@{
+            name = "Debug C++20 active file"
+            type = "cppdbg"
+            request = "launch"
+            program = '${fileDirname}\${fileBasenameNoExtension}.exe'
+            args = @()
+            stopAtEntry = $false
+            cwd = '${fileDirname}'
+            environment = @()
+            externalConsole = $false
+            MIMode = "gdb"
+            miDebuggerPath = "C:/msys64/ucrt64/bin/gdb.exe"
+            preLaunchTask = "build debug C++20"
+            setupCommands = @(
+                [ordered]@{
+                    description = "Enable pretty-printing for gdb"
+                    text = "-enable-pretty-printing"
+                    ignoreFailures = $true
+                }
+            )
+        },
+        [ordered]@{
+            name = "Debug C11 active file"
+            type = "cppdbg"
+            request = "launch"
+            program = '${fileDirname}\${fileBasenameNoExtension}.exe'
+            args = @()
+            stopAtEntry = $false
+            cwd = '${fileDirname}'
+            environment = @()
+            externalConsole = $false
+            MIMode = "gdb"
+            miDebuggerPath = "C:/msys64/ucrt64/bin/gdb.exe"
+            preLaunchTask = "build debug C11"
+            setupCommands = @(
+                [ordered]@{
+                    description = "Enable pretty-printing for gdb"
+                    text = "-enable-pretty-printing"
+                    ignoreFailures = $true
+                }
+            )
+        },
+        [ordered]@{
+            name = "Debug Python3 current file"
+            type = "debugpy"
+            request = "launch"
+            program = '${file}'
+            console = "integratedTerminal"
+            cwd = '${fileDirname}'
+            justMyCode = $true
+        }
+    )
+}
+
+$LaunchJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 "$VSCodeDir\launch.json"
+
 $CppPropertiesJson = [ordered]@{
     configurations = @(
         [ordered]@{
@@ -828,9 +1246,9 @@ $CppPropertiesJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 "$VSC
 
 Write-Host "Template created: $TemplateRoot" -ForegroundColor Green
 
-# ------------------------------------------------------------
+# ============================================================
 # 10. Version report
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "10. Version report"
 
@@ -863,9 +1281,9 @@ $VersionReport += (& "$MsysCat" --version | Select-Object -First 1)
 $VersionReport | Set-Content -Encoding UTF8 "$TestDir\version-report.txt"
 $VersionReport | ForEach-Object { Write-Host $_ }
 
-# ------------------------------------------------------------
+# ============================================================
 # 11. Compile and run tests
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "11. Compile and run tests"
 
@@ -953,9 +1371,9 @@ Write-LinesUtf8NoBom "$TestDir\text_test.txt" @(
 $Out = (& "$ToolBin\cat.cmd" "$TestDir\text_test.txt") -join "`n"
 Assert-Output -Name "Text cat" -Actual $Out -Expected "TEXT OK"
 
-# ------------------------------------------------------------
+# ============================================================
 # 12. AI hosts block
-# ------------------------------------------------------------
+# ============================================================
 
 if ($SkipAiBlock) {
     Write-Section "12. AI hosts block skipped"
@@ -965,9 +1383,9 @@ else {
     Apply-AiHostsBlock
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # 13. Final
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Section "13. Done"
 
@@ -980,6 +1398,18 @@ Write-Host "  C++20    : g++20"
 Write-Host "  C        : gcc"
 Write-Host "  Python 3 : python3"
 Write-Host "  Text     : cat"
+Write-Host ""
+Write-Host "VS Code extensions:"
+Write-Host "  formulahendry.code-runner"
+Write-Host "  ms-vscode.cpptools"
+Write-Host "  ms-python.python"
+Write-Host "  ms-python.debugpy"
+Write-Host ""
+Write-Host "Code Runner:"
+Write-Host "  Ctrl + Alt + N runs the current file in the integrated terminal."
+Write-Host ""
+Write-Host "Debug:"
+Write-Host "  F5 starts debugging using .vscode/launch.json."
 Write-Host ""
 Write-Host "Test directory:"
 Write-Host "  $TestDir"
