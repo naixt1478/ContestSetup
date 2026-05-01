@@ -25,6 +25,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+try {
+    chcp.com 65001 | Out-Null
+    [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $OutputEncoding = [Console]::OutputEncoding
+}
+catch {
+}
+
 try { $global:PSNativeCommandUseErrorActionPreference = $false } catch {}
 
 $Root        = "C:\CPTools"
@@ -225,9 +234,23 @@ function Test-WingetHelpSupports([string]$Command, [string]$Option) {
     }
 }
 
-function Invoke-Winget([string[]]$Arguments) {
-    & winget @Arguments
-    return $LASTEXITCODE
+function Invoke-Winget {
+    param([string[]]$Arguments)
+
+    Write-Host "winget $($Arguments -join ' ')" -ForegroundColor DarkGray
+
+    # Capture winget output inside the function so it does not become
+    # part of the function return value.
+    $WingetOutput = & winget @Arguments 2>&1
+    $ExitCode = [int]$LASTEXITCODE
+
+    foreach ($Line in $WingetOutput) {
+        if ($null -ne $Line) {
+            Write-Host $Line
+        }
+    }
+
+    return $ExitCode
 }
 
 function Update-WingetClient {
