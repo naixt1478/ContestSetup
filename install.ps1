@@ -14,11 +14,11 @@ $ErrorActionPreference = "Stop"
 # Edit these values for your GitHub repository
 # ============================================================
 
-$RepoOwner = "<USER>"
-$RepoName  = "<REPO>"
+$RepoOwner = "naixt1478"
+$RepoName  = "ContestSetup"
 $Branch    = "main"
 
-$MainScriptName = "setup-contest.env.ps1"
+$MainScriptName = "setup-contest-env.ps1"
 
 # ============================================================
 # Internal settings
