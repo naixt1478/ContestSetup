@@ -40,7 +40,8 @@
 param(
     [switch]$SkipAiBlock,
     [switch]$RestoreHosts,
-    [switch]$KeepVSCode
+    [switch]$KeepVSCode,
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
