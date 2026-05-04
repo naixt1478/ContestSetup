@@ -427,7 +427,7 @@ function Assert-AuthenticodeValid {
             if ($Combined -like "*$Keyword*") { $Ok = $true; break }
         }
         if (-not $Ok) {
-            throw "Unexpected signer for $Path: $Subject"
+            throw "Unexpected signer for ${Path}: $Subject"
         }
     }
 
