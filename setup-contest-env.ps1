@@ -45,6 +45,7 @@ try {
 }
 
 $ToolBin     = Join-Path $Root 'bin'
+$PathBin     = Join-Path $Root 'path'
 $DownloadDir = Join-Path $Root 'downloads'
 $TestDir     = Join-Path $Root 'tests'
 $LogDir      = Join-Path $Root 'logs'
@@ -531,6 +532,7 @@ function Remove-ConflictingPathEntries {
     $MsysRootNorm = Normalize-PathForCompare $MsysRoot
     $PythonDirNorm = Normalize-PathForCompare $PythonDir
     $ToolBinNorm = Normalize-PathForCompare $ToolBin
+    $PathBinNorm = Normalize-PathForCompare $PathBin
     $VSCodeBinNorms = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
         (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
@@ -541,6 +543,7 @@ function Remove-ConflictingPathEntries {
         param($Original, $Normalized)
         return (
             $Normalized -eq $ToolBinNorm -or
+            $Normalized -eq $PathBinNorm -or
             $Normalized -eq $PythonDirNorm -or
             $Normalized.StartsWith("$PythonDirNorm\") -or
             $Normalized -eq $MsysRootNorm -or
@@ -750,6 +753,10 @@ function Backup-PathVerified {
     Write-Host "Backing up: $Path"
     Copy-Item -Path $Path -Destination $Destination -Recurse -Force -ErrorAction Stop
     if (-not (Test-Path $Destination)) { throw "Backup failed: $Path" }
+
+    $ManifestPath = Join-Path $BackupRoot 'backup-manifest.tsv'
+    $Line = "$Destination`t$Path"
+    Add-Content -Path $ManifestPath -Value $Line -Encoding UTF8
 
     return $Destination
 }
@@ -1211,7 +1218,8 @@ function Install-PythonDirect {
 
 function Create-CommandWrappers {
     Write-Section 'Create command wrappers'
-    New-Item -ItemType Directory -Force -Path $ToolBin | Out-Null
+    New-Item -ItemType Directory -Force -Path $ToolBin, $PathBin | Out-Null
+    Remove-Item -Path (Join-Path $PathBin '*') -Recurse -Force -ErrorAction SilentlyContinue
 
     $MsysUsrBin = Split-Path $MsysBash -Parent
     $MsysToolPathLine = "set `"PATH=$UcrtBin;$MsysUsrBin;%PATH%`""
@@ -1221,26 +1229,27 @@ function Create-CommandWrappers {
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++20.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++20 %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'gcc.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'gdb.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gdb.exe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python3.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'cat.cmd') @('@echo off', "`"$MsysCat`" %*")
+
+    Write-LinesUtf8NoBom (Join-Path $PathBin 'g++.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $PathBin 'gcc.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $PathBin 'gdb.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gdb.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $PathBin 'cat.cmd') @('@echo off', $MsysToolPathLine, "`"$MsysCat`" %*")
+
+    Get-ChildItem -Path $UcrtBin -Filter '*.dll' -File -ErrorAction SilentlyContinue |
+        Copy-Item -Destination $PathBin -Force
 
     Write-Host 'Wrappers created.' -ForegroundColor Green
 }
 
 function Configure-Path {
     Write-Section 'Configure PATH'
-    Add-UserPathFront $UcrtBin
-    Add-UserPathFront $ToolBin
-    foreach ($Candidate in @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
-        (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft VS Code\bin')
-    )) {
-        if ($Candidate -and (Test-Path $Candidate)) { Add-UserPathFront $Candidate; break }
-    }
-    Write-Host 'C:\CPTools\bin added before MSYS2 so python/python3 resolve to the managed Windows Python 3.10 install.' -ForegroundColor Green
-    Write-Host "MSYS2 UCRT64 bin remains on PATH for GCC runtime DLLs and direct tool access: $UcrtBin" -ForegroundColor Green
+    Add-UserPathFront $PathBin
+    Write-Host "Only public contest commands are added to PATH: $PathBin" -ForegroundColor Green
+    Write-Host 'Exposed commands: gcc, g++, gdb, cat' -ForegroundColor Green
 }
 
 function Write-VersionReport {
@@ -1251,12 +1260,11 @@ function Write-VersionReport {
     $VersionReport += '----------------'
     $VersionReport += 'C++      : g++'
     $VersionReport += 'C        : gcc'
-    $VersionReport += 'C++14    : g++14'
-    $VersionReport += 'C++17    : g++17'
-    $VersionReport += 'C++20    : g++20'
-    $VersionReport += 'Python   : python'
-    $VersionReport += 'Python 3 : python3'
+    $VersionReport += 'Debugger : gdb'
     $VersionReport += 'Text     : cat'
+    $VersionReport += ''
+    $VersionReport += 'Managed Python interpreter:'
+    $VersionReport += $PythonExe
     $VersionReport += ''
     $VersionReport += 'g++ version:'
     $GxxVersion = ((Invoke-NativeChecked -FilePath (Join-Path $UcrtBin 'g++.exe') -ArgumentList @('--version') -Quiet).Output | Select-Object -First 1)
@@ -1321,7 +1329,7 @@ function Main {
     Start-SetupLogging
 
     Write-Section '1. Create folders'
-    New-Item -ItemType Directory -Force -Path $Root, $ToolBin, $DownloadDir, $TestDir, $LogDir, $BackupDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $Root, $ToolBin, $PathBin, $DownloadDir, $TestDir, $LogDir, $BackupDir | Out-Null
     Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
     Remove-ConflictingPathEntries
 
@@ -1373,22 +1381,19 @@ function Main {
     if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
     Write-Host "MSYS2 found: $MsysBash" -ForegroundColor Green
 
-# ...existing code...
+    Write-Section '4. Install MSYS2 packages'
+    Invoke-MsysBashChecked 'echo MSYS2 initialized'
+    Install-Msys2CaCertificate
+    Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
+    Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
 
-Write-Section '4. Install MSYS2 packages'
-Invoke-MsysBashChecked 'echo MSYS2 initialized'
-Install-Msys2CaCertificate
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
+    $MsysPackages = @(
+        'mingw-w64-ucrt-x86_64-gcc',
+        'mingw-w64-ucrt-x86_64-gdb'
+    )
+    Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
+    Ensure-MsysCatInstalled
 
-$MsysPackages = @(
-    'mingw-w64-ucrt-x86_64-gcc',
-    'mingw-w64-ucrt-x86_64-gdb'
-)
-Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
-Ensure-MsysCatInstalled
-
-# ...existing code...
     foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), $MsysCat)) {
         if (-not (Test-Path $RequiredPath)) { throw "Required tool not found: $RequiredPath" }
     }
@@ -1407,12 +1412,10 @@ Ensure-MsysCatInstalled
     Write-Host 'Available commands:'
     Write-Host '  C++      : g++'
     Write-Host '  C        : gcc'
-    Write-Host '  C++14    : g++14'
-    Write-Host '  C++17    : g++17'
-    Write-Host '  C++20    : g++20'
-    Write-Host '  Python   : python'
-    Write-Host '  Python 3 : python3'
+    Write-Host '  Debugger : gdb'
     Write-Host '  Text     : cat'
+    Write-Host ''
+    Write-Host "Managed Python 3.10 interpreter for VS Code: $PythonExe"
     Write-Host ''
     Write-Host "Test directory: $TestDir"
     Write-Host "Version report: $(Join-Path $TestDir 'version-report.txt')"

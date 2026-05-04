@@ -29,6 +29,7 @@ $TimeStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $BackupDir = Join-Path $Root 'backup'
 $RestoreBackupRoot = Join-Path $BackupDir "restore-current-$TimeStamp"
 $ToolBin = Join-Path $Root 'bin'
+$PathBin = Join-Path $Root 'path'
 $UcrtBin = Join-Path $MsysRoot 'ucrt64\bin'
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 $HostsBackupPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts.bak'
@@ -117,6 +118,32 @@ function Get-BackupChildByLeaf {
         Select-Object -First 1
 }
 
+function Get-BackupSourceFromManifest {
+    param(
+        [Parameter(Mandatory = $true)] [string]$BackupRoot,
+        [Parameter(Mandatory = $true)] [string]$Destination
+    )
+
+    $ManifestPath = Join-Path $BackupRoot 'backup-manifest.tsv'
+    if (-not (Test-Path $ManifestPath)) { return $null }
+
+    $DestinationNorm = Normalize-PathForCompare $Destination
+    $Entries = Get-Content -Path $ManifestPath -ErrorAction SilentlyContinue
+    foreach ($Entry in $Entries) {
+        if ([string]::IsNullOrWhiteSpace($Entry)) { continue }
+        $Parts = $Entry -split "`t", 2
+        if ($Parts.Count -ne 2) { continue }
+
+        $Source = $Parts[0]
+        $OriginalDestination = $Parts[1]
+        if ((Normalize-PathForCompare $OriginalDestination) -eq $DestinationNorm -and (Test-Path $Source)) {
+            return (Get-Item -Path $Source)
+        }
+    }
+
+    return $null
+}
+
 function Get-VSCodeCodeBackupForDestination {
     param(
         [Parameter(Mandatory = $true)] [string]$BackupRoot,
@@ -192,10 +219,13 @@ function Restore-VSCode {
     )
 
     foreach ($Target in $Targets) {
-        if ($Target.Leaf -eq 'Code') {
-            $Source = Get-VSCodeCodeBackupForDestination -BackupRoot $BackupRoot.FullName -Destination $Target.Destination
-        } else {
-            $Source = Get-BackupChildByLeaf -BackupRoot $BackupRoot.FullName -Leaf $Target.Leaf
+        $Source = Get-BackupSourceFromManifest -BackupRoot $BackupRoot.FullName -Destination $Target.Destination
+        if (-not $Source) {
+            if ($Target.Leaf -eq 'Code') {
+                $Source = Get-VSCodeCodeBackupForDestination -BackupRoot $BackupRoot.FullName -Destination $Target.Destination
+            } else {
+                $Source = Get-BackupChildByLeaf -BackupRoot $BackupRoot.FullName -Leaf $Target.Leaf
+            }
         }
         if ($Source) {
             Restore-PathFromBackup -Source $Source.FullName -Destination $Target.Destination
@@ -248,20 +278,16 @@ function Restore-Hosts {
 
     Backup-CurrentPath -Path $HostsPath
     if (Test-Path $HostsBackupPath) {
-        if ($PSCmdlet.ShouldProcess($HostsPath, "restore full hosts backup from $HostsBackupPath")) {
-            Copy-Item -Path $HostsBackupPath -Destination $HostsPath -Force
-            ipconfig.exe /flushdns | Out-Null
-            Write-Host "hosts restored from: $HostsBackupPath" -ForegroundColor Green
-        }
-    } else {
-        $CurrentHosts = Get-Content -Path $HostsPath -Raw
-        $NewHosts = Remove-ManagedHostsSectionFromText -HostsText $CurrentHosts
-        if ($PSCmdlet.ShouldProcess($HostsPath, 'remove managed AI hosts section')) {
-            $Encoding = New-Object System.Text.UTF8Encoding($false)
-            [IO.File]::WriteAllText($HostsPath, ($NewHosts + "`r`n"), $Encoding)
-            ipconfig.exe /flushdns | Out-Null
-            Write-Host 'Managed AI hosts section removed.' -ForegroundColor Green
-        }
+        Write-Host "Full hosts backup kept untouched: $HostsBackupPath" -ForegroundColor Yellow
+    }
+
+    $CurrentHosts = Get-Content -Path $HostsPath -Raw
+    $NewHosts = Remove-ManagedHostsSectionFromText -HostsText $CurrentHosts
+    if ($PSCmdlet.ShouldProcess($HostsPath, 'remove managed AI hosts section')) {
+        $Encoding = New-Object System.Text.UTF8Encoding($false)
+        [IO.File]::WriteAllText($HostsPath, ($NewHosts + "`r`n"), $Encoding)
+        ipconfig.exe /flushdns | Out-Null
+        Write-Host 'Managed AI hosts section removed.' -ForegroundColor Green
     }
 
     try {
@@ -309,6 +335,7 @@ function Normalize-PathForCompare {
 function Remove-KnownContestPathEntries {
     $Known = @(
         $ToolBin,
+        $PathBin,
         $UcrtBin,
         (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
         (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
