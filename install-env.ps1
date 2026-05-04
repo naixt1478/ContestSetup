@@ -1,4 +1,4 @@
-# install.ps1
+# install-env.ps1
 # Modular Contest Environment Setup Installer
 
 [CmdletBinding()]
