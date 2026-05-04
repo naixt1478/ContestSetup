@@ -1,21 +1,22 @@
 #requires -Version 5.1
-# setup-contest-env.fixed.ps1
+# setup-contest-env.deepreview.fixed.ps1
 # Windows contest environment setup.
+# Re-exported from the deep-review revision for the current ChatGPT session.
 # Java is intentionally excluded.
 #
 # Safer revision notes:
 # - AI hosts blocking is opt-in: use -EnableAiBlock with -AiBlockListPath or a pinned URL/hash.
 # - VS Code user settings are not overwritten; contest settings are stored in Desktop\CP-Template\.vscode.
-# - -KeepVSCode preserves existing VS Code settings/extensions by skipping reset and extension installation.
+# - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
 # - Directly downloaded installers are Authenticode-checked unless -SkipSignatureCheck is used.
 # - Only C:\CPTools\bin and VS Code bin are added to the user PATH; compiler/Python access is through wrappers.
 #
 # Common usage:
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.fixed.ps1 -NoPause
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.fixed.ps1 -KeepVSCode
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.fixed.ps1 -RestoreHosts
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.fixed.ps1 -EnableAiBlock -AiBlockListPath .\noai_hosts.txt
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -KeepVSCode
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -RestoreHosts
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -EnableAiBlock -AiBlockListPath .\noai_hosts.txt
 #
 # Note: Python 3.10.11 is the default because it is the last Python 3.10 release with Windows installers.
 
@@ -120,9 +121,18 @@ function Test-IsAdmin {
 }
 
 function Get-PreferredPowerShell {
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+        $SysnativePowerShell = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+        if (Test-Path $SysnativePowerShell) { return $SysnativePowerShell }
+    }
+
+    $PowerShell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path $PowerShell51) { return $PowerShell51 }
+
     $Pwsh = Get-Command pwsh.exe -ErrorAction SilentlyContinue
     if ($Pwsh) { return $Pwsh.Source }
-    return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+
+    throw 'No supported PowerShell executable was found for self-relaunch.'
 }
 
 function Quote-ProcessArgument {
@@ -130,14 +140,35 @@ function Quote-ProcessArgument {
     if ($null -eq $Value) { return '""' }
     $Text = [string]$Value
     if ($Text -notmatch '[\s"]') { return $Text }
-    return '"' + ($Text -replace '(["\\])', '\$1') + '"'
+
+    # Windows command-line quoting: keep normal path backslashes intact,
+    # but escape embedded quotes and trailing backslashes before the closing quote.
+    $Escaped = $Text -replace '(\*)"', '$1$1\"'
+    $Escaped = $Escaped -replace '(\+)$', '$1$1'
+    return '"' + $Escaped + '"'
 }
 
-function Assert-Admin {
-    if (Test-IsAdmin) { return }
+function Assert-SupportedEnvironment {
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+        throw 'This script supports Windows only.'
+    }
+
+    if (-not [Environment]::Is64BitOperatingSystem) {
+        throw 'This script requires 64-bit Windows because it installs 64-bit toolchains and uses the native System32 view.'
+    }
+
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        throw 'This script requires Windows PowerShell 5.1 or PowerShell 7+.'
+    }
+}
+
+function Ensure-PreferredHostAndAdmin {
+    $Need64BitRelaunch = [Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess
+    $NeedElevation = -not (Test-IsAdmin)
+    if (-not $Need64BitRelaunch -and -not $NeedElevation) { return }
 
     if (-not $PSCommandPath) {
-        throw 'Administrator relaunch is only supported from a saved .ps1 file.'
+        throw 'Self-relaunch is only supported from a saved .ps1 file.'
     }
 
     $Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
@@ -165,8 +196,22 @@ function Assert-Admin {
     }
 
     $ArgumentString = ($Args | ForEach-Object { Quote-ProcessArgument $_ }) -join ' '
+    $TargetPowerShell = Get-PreferredPowerShell
+
+    if ($Need64BitRelaunch -and $NeedElevation) {
+        Write-Host 'Requesting administrator permission in 64-bit PowerShell...' -ForegroundColor Yellow
+        $Process = Start-Process -FilePath $TargetPowerShell -ArgumentList $ArgumentString -Verb RunAs -PassThru -Wait
+        exit $Process.ExitCode
+    }
+
+    if ($Need64BitRelaunch) {
+        Write-Host 'Relaunching in 64-bit PowerShell...' -ForegroundColor Yellow
+        $Process = Start-Process -FilePath $TargetPowerShell -ArgumentList $ArgumentString -PassThru -Wait
+        exit $Process.ExitCode
+    }
+
     Write-Host 'Requesting administrator permission...' -ForegroundColor Yellow
-    $Process = Start-Process -FilePath (Get-PreferredPowerShell) -ArgumentList $ArgumentString -Verb RunAs -PassThru -Wait
+    $Process = Start-Process -FilePath $TargetPowerShell -ArgumentList $ArgumentString -Verb RunAs -PassThru -Wait
     exit $Process.ExitCode
 }
 
@@ -248,6 +293,16 @@ function Write-LinesUtf8NoBom {
     )
     $Content = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
     Write-TextUtf8NoBom -Path $Path -Content $Content
+}
+
+function Write-JsonUtf8NoBom {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Path,
+        [Parameter(Mandatory = $true)] [object]$InputObject,
+        [int]$Depth = 30
+    )
+    $Json = $InputObject | ConvertTo-Json -Depth $Depth
+    Write-TextUtf8NoBom -Path $Path -Content ($Json + [Environment]::NewLine)
 }
 
 function Convert-ToForwardSlashPath {
@@ -706,6 +761,43 @@ function Install-VSCodeDirect {
     Write-Host 'VS Code direct install completed.' -ForegroundColor Green
 }
 
+function Get-RequiredVSCodeExtensions {
+    return @(
+        'formulahendry.code-runner',
+        'ms-vscode.cpptools',
+        'ms-python.python',
+        'ms-python.debugpy'
+    )
+}
+
+function Warn-IfRequiredVSCodeExtensionsMissing {
+    Write-Section 'Check VS Code extensions'
+
+    $CodeCmd = Get-VSCodeCommandPath
+    if (-not $CodeCmd) {
+        Write-Warning 'VS Code command was not found; extension check skipped.'
+        return
+    }
+
+    try {
+        $InstalledExtensionsResult = Invoke-NativeChecked -FilePath $CodeCmd -ArgumentList @('--list-extensions') -Quiet
+        $InstalledExtensions = @($InstalledExtensionsResult.Output | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() })
+        $Missing = @()
+        foreach ($Extension in (Get-RequiredVSCodeExtensions)) {
+            if ($InstalledExtensions -notcontains $Extension.ToLowerInvariant()) { $Missing += $Extension }
+        }
+
+        if ($Missing.Count -gt 0) {
+            Write-Warning ('Required VS Code extensions are missing: ' + ($Missing -join ', '))
+            Write-Warning 'Because -KeepVSCode was used and an existing VS Code profile was found, the script did not modify extensions automatically.'
+        } else {
+            Write-Host 'Required VS Code extensions are already installed.' -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning "Failed to check VS Code extensions. $($_.Exception.Message)"
+    }
+}
+
 function Install-VSCodeExtensions {
     Write-Section 'Install VS Code extensions'
 
@@ -717,12 +809,7 @@ function Install-VSCodeExtensions {
     }
     if (-not $CodeCmd) { throw 'code.cmd not found after VS Code installation.' }
 
-    $Extensions = @(
-        'formulahendry.code-runner',
-        'ms-vscode.cpptools',
-        'ms-python.python',
-        'ms-python.debugpy'
-    )
+    $Extensions = Get-RequiredVSCodeExtensions
 
     foreach ($Extension in $Extensions) {
         Write-Host "Installing VS Code extension: $Extension"
@@ -1039,7 +1126,7 @@ function Create-VSCodeTemplate {
         'python.terminal.activateEnvironment' = $false
         'debug.openDebug' = 'openOnDebugBreak'
     }
-    $WorkspaceSettings | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 (Join-Path $VSCodeDir 'settings.json')
+    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'settings.json') -InputObject $WorkspaceSettings -Depth 30
 
     $TasksJson = [ordered]@{
         version = '2.0.0'
@@ -1052,7 +1139,7 @@ function Create-VSCodeTemplate {
             [ordered]@{ label = 'run Python3'; type = 'shell'; command = 'python3'; args = @('${file}'); group = 'test'; problemMatcher = @() }
         )
     }
-    $TasksJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 (Join-Path $VSCodeDir 'tasks.json')
+    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'tasks.json') -InputObject $TasksJson -Depth 30
 
     $CppDebugSetup = @(
         [ordered]@{ description = 'Enable pretty-printing for gdb'; text = '-enable-pretty-printing'; ignoreFailures = $true }
@@ -1069,7 +1156,7 @@ function Create-VSCodeTemplate {
             [ordered]@{ name = 'Debug Python3 current file'; type = 'debugpy'; request = 'launch'; program = '${file}'; console = 'integratedTerminal'; cwd = '${fileDirname}'; justMyCode = $true }
         )
     }
-    $LaunchJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 (Join-Path $VSCodeDir 'launch.json')
+    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'launch.json') -InputObject $LaunchJson -Depth 30
 
     $CppPropertiesJson = [ordered]@{
         configurations = @(
@@ -1085,7 +1172,7 @@ function Create-VSCodeTemplate {
         )
         version = 4
     }
-    $CppPropertiesJson | ConvertTo-Json -Depth 30 | Set-Content -Encoding UTF8 (Join-Path $VSCodeDir 'c_cpp_properties.json')
+    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'c_cpp_properties.json') -InputObject $CppPropertiesJson -Depth 30
 
     Write-Host "Template created: $TemplateRoot" -ForegroundColor Green
     return $TemplateRoot
@@ -1161,7 +1248,8 @@ function Run-SmokeTests {
 }
 
 function Main {
-    Assert-Admin
+    Assert-SupportedEnvironment
+    Ensure-PreferredHostAndAdmin
     Start-SetupLogging
 
     if ($SkipAiBlock) {
@@ -1193,11 +1281,14 @@ function Main {
 
     Write-Section '3. Install VS Code / MSYS2'
     if ($KeepVSCode) {
-        Write-Host 'VS Code reset and extension installation skipped by -KeepVSCode.' -ForegroundColor Yellow
+        Write-Host 'VS Code reset skipped by -KeepVSCode.' -ForegroundColor Yellow
         if (-not (Get-VSCodeCommandPath)) {
-            Write-Warning 'VS Code is not currently detected. Installing VS Code, but preserving settings/extensions because none were found.'
+            Write-Warning 'VS Code is not currently detected. Installing VS Code and the required extensions because there is no existing profile to preserve.'
             $VSCodeInstalled = Install-ByWinget -Id 'Microsoft.VisualStudioCode' -NameForLog 'Visual Studio Code'
             if (-not $VSCodeInstalled) { Install-VSCodeDirect }
+            Install-VSCodeExtensions
+        } else {
+            Warn-IfRequiredVSCodeExtensionsMissing
         }
     } else {
         Reset-VSCodeCompletely
