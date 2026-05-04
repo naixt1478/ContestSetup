@@ -315,7 +315,8 @@ function Invoke-NativeCommand {
     param(
         [Parameter(Mandatory = $true)] [string]$FilePath,
         [string[]]$ArgumentList = @(),
-        [switch]$Quiet
+        [switch]$Quiet,
+        [switch]$StreamOutput
     )
 
     if (-not (Get-Command $FilePath -ErrorAction SilentlyContinue) -and -not (Test-Path $FilePath)) {
@@ -326,10 +327,23 @@ function Invoke-NativeCommand {
         Write-Host ("{0} {1}" -f $FilePath, ($ArgumentList -join ' ')) -ForegroundColor DarkGray
     }
 
-    $Output = & $FilePath @ArgumentList 2>&1
-    $ExitCode = [int]$LASTEXITCODE
+    if ($StreamOutput -and -not $Quiet) {
+        $OutputList = New-Object System.Collections.Generic.List[string]
+        & $FilePath @ArgumentList 2>&1 | ForEach-Object {
+            if ($null -ne $_) {
+                $Line = $_.ToString()
+                $OutputList.Add($Line) | Out-Null
+                Write-Host $Line
+            }
+        }
+        $ExitCode = [int]$LASTEXITCODE
+        $Output = $OutputList.ToArray()
+    } else {
+        $Output = & $FilePath @ArgumentList 2>&1
+        $ExitCode = [int]$LASTEXITCODE
+    }
 
-    if (-not $Quiet) {
+    if ((-not $Quiet) -and (-not $StreamOutput)) {
         foreach ($Line in $Output) {
             if ($null -ne $Line) { Write-Host $Line }
         }
@@ -346,10 +360,11 @@ function Invoke-NativeChecked {
         [Parameter(Mandatory = $true)] [string]$FilePath,
         [string[]]$ArgumentList = @(),
         [int[]]$SuccessExitCodes = @(0),
-        [switch]$Quiet
+        [switch]$Quiet,
+        [switch]$StreamOutput
     )
 
-    $Result = Invoke-NativeCommand -FilePath $FilePath -ArgumentList $ArgumentList -Quiet:$Quiet
+    $Result = Invoke-NativeCommand -FilePath $FilePath -ArgumentList $ArgumentList -Quiet:$Quiet -StreamOutput:$StreamOutput
     if ($SuccessExitCodes -notcontains $Result.ExitCode) {
         throw "Native command failed with exit code $($Result.ExitCode): $FilePath $($ArgumentList -join ' ')"
     }
@@ -900,7 +915,7 @@ function Invoke-MsysBashChecked {
     try {
         $env:MSYSTEM = 'UCRT64'
         $env:CHERE_INVOKING = '1'
-        $Result = Invoke-NativeCommand -FilePath $MsysBash -ArgumentList @('-lc', $Command)
+        $Result = Invoke-NativeCommand -FilePath $MsysBash -ArgumentList @('-lc', $Command) -StreamOutput
         if ($Result.ExitCode -ne 0) {
             $OutputText = ($Result.Output -join "`n")
             if ($ExplainMsysTlsErrors -and
