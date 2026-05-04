@@ -5,8 +5,7 @@
 # Java is intentionally excluded.
 #
 # Safer revision notes:
-# - AI hosts blocking is opt-in: use -EnableAiBlock with -AiBlockListPath or the built-in default list.
-# - VS Code user settings are not overwritten; optional contest settings can be created in Desktop\CP-Template\.vscode.
+# - VS Code user settings are not overwritten except for contest-safe AI hiding settings.
 # - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
 # - Directly downloaded installers are Authenticode-checked unless -SkipSignatureCheck is used.
@@ -16,31 +15,18 @@
 # Common usage:
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -KeepVSCode
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -RestoreHosts
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -EnableAiBlock
 #
 # Note: Python 3.10.11 is the default because it is the last Python 3.10 release with Windows installers.
 
 [CmdletBinding()]
 param(
-    [switch]$EnableAiBlock,
-    [switch]$SkipAiBlock,
-    [string]$AiBlockListPath = '',
-    [string]$AiBlockListUrl = '',
-    [string]$AiBlockListSha256 = '',
-    [switch]$AllowUnverifiedAiBlockUrl,
-
-    [switch]$RestoreHosts,
-    [switch]$RestoreHostsFromBackup,
     [switch]$KeepVSCode,
-    [switch]$CreateTemplate,
     [switch]$NoPause,
     [switch]$SkipSignatureCheck,
 
     [string]$Root = "$env:SystemDrive\CPTools",
     [string]$MsysRoot = "$env:SystemDrive\msys64",
     [string]$Msys2CaCertificatePath = '',
-    [string]$DesktopPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),
     [string]$PythonVersion = '3.10.11'
 )
 
@@ -71,7 +57,6 @@ $Script:TranscriptStarted = $false
 $MsysBash = Join-Path $MsysRoot 'usr\bin\bash.exe'
 $MsysCat  = Join-Path $MsysRoot 'usr\bin\cat.exe'
 $UcrtBin  = Join-Path $MsysRoot 'ucrt64\bin'
-$MsysShellCmd = Join-Path $MsysRoot 'msys2_shell.cmd'
 
 $VersionParts = $PythonVersion -split '\.'
 if ($VersionParts.Count -lt 2) { throw "Invalid PythonVersion: $PythonVersion" }
@@ -86,59 +71,6 @@ $VSCodeInstallerPath = Join-Path $DownloadDir 'VSCodeSetup-x64.exe'
 
 $Msys2InstallerUrl  = 'https://github.com/msys2/msys2-installer/releases/latest/download/msys2-x86_64-latest.exe'
 $Msys2InstallerPath = Join-Path $DownloadDir 'msys2-x86_64-latest.exe'
-
-$HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
-$BackupPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts.bak'
-$BlockDir = Join-Path $Root 'ai-block'
-$RawListPath = Join-Path $BlockDir 'noai_hosts.txt'
-$ParsedListPath = Join-Path $BlockDir 'parsed-ai-hosts.txt'
-$BeginMarker = '# >>> CP_CONTEST_AI_BLOCKLIST_BEGIN'
-$EndMarker   = '# <<< CP_CONTEST_AI_BLOCKLIST_END'
-
-$AllowList = @(
-    'localhost', 'localhost.localdomain',
-    'github.com', 'raw.githubusercontent.com', 'objects.githubusercontent.com', 'githubusercontent.com',
-    'code.visualstudio.com', 'marketplace.visualstudio.com',
-    'msys2.org', 'packages.msys2.org', 'repo.msys2.org', 'mirror.msys2.org',
-    'python.org', 'www.python.org',
-    'winget.azureedge.net', 'cdn.winget.microsoft.com'
-)
-
-$DefaultAiBlockDomains = @(
-    'chat.openai.com',
-    'chatgpt.com',
-    'openai.com',
-    'api.openai.com',
-    'oaistatic.com',
-    'oaiusercontent.com',
-    'anthropic.com',
-    'claude.ai',
-    'api.anthropic.com',
-    'gemini.google.com',
-    'bard.google.com',
-    'generativelanguage.googleapis.com',
-    'makersuite.google.com',
-    'copilot.microsoft.com',
-    'bing.com',
-    'edgeservices.bing.com',
-    'api.githubcopilot.com',
-    'copilot-proxy.githubusercontent.com',
-    'githubcopilot.com',
-    'cursor.com',
-    'cursor.sh',
-    'api.cursor.sh',
-    'tabnine.com',
-    'api.tabnine.com',
-    'codeium.com',
-    'windsurf.com',
-    'supermaven.com',
-    'perplexity.ai',
-    'poe.com',
-    'you.com',
-    'phind.com',
-    'huggingface.co',
-    'replicate.com'
-)
 
 function Write-Section {
     param([Parameter(Mandatory = $true)] [string]$Message)
@@ -212,7 +144,7 @@ function Ensure-PreferredHostAndAdmin {
 
     $Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
 
-    foreach ($Name in @('EnableAiBlock', 'SkipAiBlock', 'RestoreHosts', 'RestoreHostsFromBackup', 'KeepVSCode', 'CreateTemplate', 'NoPause', 'SkipSignatureCheck', 'AllowUnverifiedAiBlockUrl')) {
+    foreach ($Name in @('KeepVSCode', 'NoPause', 'SkipSignatureCheck')) {
         $Value = Get-Variable -Name $Name -ValueOnly
         if ($Value) { $Args += "-$Name" }
     }
@@ -221,11 +153,7 @@ function Ensure-PreferredHostAndAdmin {
         Root = $Root
         MsysRoot = $MsysRoot
         Msys2CaCertificatePath = $Msys2CaCertificatePath
-        DesktopPath = $DesktopPath
         PythonVersion = $PythonVersion
-        AiBlockListPath = $AiBlockListPath
-        AiBlockListUrl = $AiBlockListUrl
-        AiBlockListSha256 = $AiBlockListSha256
     }
     foreach ($Key in $StringParams.Keys) {
         $Val = $StringParams[$Key]
@@ -1261,137 +1189,6 @@ function Assert-Output {
     Write-Host "$Name test passed: $A" -ForegroundColor Green
 }
 
-function Remove-ManagedHostsSectionFromText {
-    param([Parameter(Mandatory = $true)] [string]$HostsText)
-    $Pattern = "(?s)\r?\n?" + [regex]::Escape($BeginMarker) + '.*?' + [regex]::Escape($EndMarker) + "\r?\n?"
-    return ([regex]::Replace($HostsText, $Pattern, "`r`n")).TrimEnd()
-}
-
-function Restore-HostsManagedSection {
-    Write-Section 'Restore hosts managed section'
-    if (-not (Test-Path $HostsPath)) { throw "hosts file not found: $HostsPath" }
-    $CurrentHosts = Get-Content -Path $HostsPath -Raw
-    $NewHosts = Remove-ManagedHostsSectionFromText -HostsText $CurrentHosts
-    Write-TextUtf8NoBom -Path $HostsPath -Content ($NewHosts + "`r`n")
-    Invoke-NativeChecked -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -Quiet | Out-Null
-    Write-Host 'Managed AI block section removed from hosts.' -ForegroundColor Green
-}
-
-function Restore-HostsBackupFull {
-    Write-Section 'Restore hosts file from backup'
-    if (-not (Test-Path $BackupPath)) { throw "hosts.bak not found: $BackupPath" }
-    Copy-Item -Path $HostsPath -Destination "$HostsPath.before-full-restore.$TimeStamp" -Force -ErrorAction SilentlyContinue
-    Copy-Item -Path $BackupPath -Destination $HostsPath -Force
-    Invoke-NativeChecked -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -Quiet | Out-Null
-    Write-Host "hosts restored from: $BackupPath" -ForegroundColor Green
-}
-
-function Test-DomainAllowed {
-    param([Parameter(Mandatory = $true)] [string]$Domain)
-    $Lower = $Domain.ToLowerInvariant()
-    foreach ($Allowed in $AllowList) {
-        $A = $Allowed.ToLowerInvariant()
-        if ($Lower -eq $A -or $Lower.EndsWith(".$A")) { return $true }
-    }
-    return $false
-}
-
-function Apply-AiHostsBlock {
-    Write-Section 'AI hosts block'
-
-    if ($SkipAiBlock) {
-        Write-Host 'AI hosts block skipped by -SkipAiBlock.' -ForegroundColor Yellow
-        return
-    }
-    if (-not $EnableAiBlock) {
-        Write-Host 'AI hosts block is disabled by default. Use -EnableAiBlock only when hosts changes are allowed.' -ForegroundColor Yellow
-        return
-    }
-
-    New-Item -ItemType Directory -Force -Path $BlockDir | Out-Null
-    if (-not (Test-Path $HostsPath)) { throw "hosts file not found: $HostsPath" }
-
-    if (-not [string]::IsNullOrWhiteSpace($AiBlockListPath)) {
-        if (-not (Test-Path $AiBlockListPath)) { throw "AI blocklist file not found: $AiBlockListPath" }
-        Copy-Item -Path $AiBlockListPath -Destination $RawListPath -Force
-    } elseif (-not [string]::IsNullOrWhiteSpace($AiBlockListUrl)) {
-        if ([string]::IsNullOrWhiteSpace($AiBlockListSha256) -and -not $AllowUnverifiedAiBlockUrl) {
-            throw 'Remote AI blocklist requires -AiBlockListSha256. Use -AllowUnverifiedAiBlockUrl only for temporary testing.'
-        }
-        Invoke-DownloadFile -Url $AiBlockListUrl -OutFile $RawListPath
-        Assert-FileSha256 -Path $RawListPath -ExpectedSha256 $AiBlockListSha256
-    } else {
-        $DefaultLines = @($DefaultAiBlockDomains | Sort-Object -Unique | ForEach-Object { "0.0.0.0 $_" })
-        Write-LinesUtf8NoBom -Path $RawListPath -Lines ([string[]]$DefaultLines)
-        Write-Host 'Using built-in default AI blocklist.' -ForegroundColor Yellow
-    }
-
-    if (-not (Test-Path $BackupPath)) {
-        Copy-Item -Path $HostsPath -Destination $BackupPath -Force
-        Write-Host "Backup created: $BackupPath" -ForegroundColor Green
-    } else {
-        $ExtraBackup = Join-Path (Split-Path $BackupPath -Parent) ("hosts.bak.$TimeStamp")
-        Copy-Item -Path $HostsPath -Destination $ExtraBackup -Force
-        Write-Host "Extra backup created: $ExtraBackup" -ForegroundColor Yellow
-    }
-
-    $RawContent = Get-Content -Path $RawListPath -Raw
-    $DomainList = New-Object System.Collections.Generic.List[string]
-
-    foreach ($Line in ($RawContent -split "`r`n|`n|`r")) {
-        $Clean = ($Line -replace '#.*$', '').Trim()
-        if (-not $Clean) { continue }
-
-        $Parts = $Clean -split '\s+'
-        if ($Parts.Count -lt 2) { continue }
-
-        $First = $Parts[0].ToLowerInvariant()
-        if ($First -in @('0.0.0.0', '127.0.0.1', '::1')) {
-            for ($i = 1; $i -lt $Parts.Count; $i++) {
-                $Domain = $Parts[$i].Trim().ToLowerInvariant()
-                if ($Domain -and
-                    -not (Test-DomainAllowed -Domain $Domain) -and
-                    $Domain -notmatch '[/*\\]' -and
-                    $Domain -match '^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$') {
-                    $DomainList.Add($Domain)
-                }
-            }
-        }
-    }
-
-    $Domains = @($DomainList | Sort-Object -Unique)
-    if ($Domains.Count -eq 0) { throw 'No domains were parsed from the AI blocklist.' }
-
-    Write-LinesUtf8NoBom -Path $ParsedListPath -Lines ([string[]]$Domains)
-    Write-Host "Parsed domains: $($Domains.Count)" -ForegroundColor Green
-
-    $CurrentHosts = Get-Content -Path $HostsPath -Raw
-    $BaseHosts = Remove-ManagedHostsSectionFromText -HostsText $CurrentHosts
-
-    $BlockLines = New-Object System.Collections.Generic.List[string]
-    $BlockLines.Add('')
-    $BlockLines.Add($BeginMarker)
-    $BlockLines.Add('# Generated by setup-contest-env.fixed.ps1')
-    $BlockLines.Add("# Backup: $BackupPath")
-    $BlockLines.Add('')
-
-    foreach ($Domain in $Domains) {
-        $BlockLines.Add("0.0.0.0 $Domain")
-        $BlockLines.Add("::1 $Domain")
-    }
-
-    $BlockLines.Add('')
-    $BlockLines.Add($EndMarker)
-    $BlockLines.Add('')
-
-    $NewHosts = $BaseHosts + "`r`n" + ($BlockLines -join "`r`n") + "`r`n"
-    Write-TextUtf8NoBom -Path $HostsPath -Content $NewHosts
-    Invoke-NativeChecked -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -Quiet | Out-Null
-
-    Write-Host 'AI hosts block applied.' -ForegroundColor Green
-    Write-Host 'Close and reopen browsers after this script finishes.' -ForegroundColor Yellow
-}
-
 function Install-PythonDirect {
     Write-Section "Install Python $PythonVersion"
     if (-not (Test-Path $PythonExe)) {
@@ -1442,133 +1239,6 @@ function Configure-Path {
     }
     Write-Host 'C:\CPTools\bin added before MSYS2 so python/python3 resolve to the managed Python 3.10 install.' -ForegroundColor Green
     Write-Host "MSYS2 UCRT64 bin remains on PATH for GCC runtime DLLs and direct tool access: $UcrtBin" -ForegroundColor Green
-}
-
-function Create-VSCodeTemplate {
-    Write-Section 'Create VS Code CP template'
-
-    if ([string]::IsNullOrWhiteSpace($DesktopPath)) {
-        $DesktopPath = Join-Path $env:USERPROFILE 'Desktop'
-    }
-
-    $TemplateRoot = Join-Path $DesktopPath 'CP-Template'
-    $VSCodeDir = Join-Path $TemplateRoot '.vscode'
-    New-Item -ItemType Directory -Force -Path $VSCodeDir | Out-Null
-
-    Write-LinesUtf8NoBom (Join-Path $TemplateRoot 'main.cpp') @(
-        '#include <bits/stdc++.h>',
-        'using namespace std;',
-        '',
-        'int main() {',
-        '    ios::sync_with_stdio(false);',
-        '    cin.tie(nullptr);',
-        '    cout << "Hello, C++17 Contest Environment!\n";',
-        '    return 0;',
-        '}'
-    )
-    Write-LinesUtf8NoBom (Join-Path $TemplateRoot 'main.c') @(
-        '#include <stdio.h>',
-        '',
-        'int main(void) {',
-        '    printf("Hello, C11!\n");',
-        '    return 0;',
-        '}'
-    )
-    Write-LinesUtf8NoBom (Join-Path $TemplateRoot 'main.py') @('print("Hello, Python 3!")')
-
-    $MsysProfilePath = $MsysShellCmd
-    if (-not (Test-Path $MsysProfilePath)) { $MsysProfilePath = $MsysBash }
-
-    $CodeRunnerExecutorMap = [ordered]@{
-        cpp    = 'Set-Location -LiteralPath "$dir"; & g++17 -g -O0 -Wall -Wextra "$fileName" -o "$fileNameWithoutExt.exe"; if ($LASTEXITCODE -eq 0) { & ".\$fileNameWithoutExt.exe" }'
-        c      = 'Set-Location -LiteralPath "$dir"; & gcc -std=c11 -g -O0 -Wall -Wextra "$fileName" -o "$fileNameWithoutExt.exe"; if ($LASTEXITCODE -eq 0) { & ".\$fileNameWithoutExt.exe" }'
-        python = '& python3 -u "$fullFileName"'
-    }
-
-    $WorkspaceSettings = [ordered]@{
-        'terminal.integrated.profiles.windows' = [ordered]@{
-            'MSYS2 UCRT64' = [ordered]@{
-                path = $MsysProfilePath
-                args = @('-defterm', '-here', '-no-start', '-ucrt64')
-            }
-        }
-        'terminal.integrated.defaultProfile.windows' = 'PowerShell'
-        'C_Cpp.default.compilerPath' = (Join-Path $UcrtBin 'g++.exe')
-        'C_Cpp.default.cppStandard' = 'c++17'
-        'C_Cpp.default.cStandard' = 'c11'
-        'C_Cpp.default.intelliSenseMode' = 'windows-gcc-x64'
-        'code-runner.executorMap' = $CodeRunnerExecutorMap
-        'code-runner.runInTerminal' = $true
-        'code-runner.fileDirectoryAsCwd' = $true
-        'code-runner.saveFileBeforeRun' = $true
-        'code-runner.clearPreviousOutput' = $true
-        'code-runner.showExecutionMessage' = $false
-        'code-runner.preserveFocus' = $false
-        'code-runner.ignoreSelection' = $true
-        'code-runner.enableAppInsights' = $false
-        'python.defaultInterpreterPath' = $PythonExe
-        'python.terminal.activateEnvironment' = $false
-        'debug.openDebug' = 'openOnDebugBreak'
-        'chat.commandCenter.enabled' = $false
-        'chat.disableAIFeatures' = $true
-        'inlineChat.enabled' = $false
-        'workbench.commandPalette.experimental.enableNaturalLanguageSearch' = $false
-        'github.copilot.enable' = [ordered]@{ '*' = $false; plaintext = $false; markdown = $false; scminput = $false; cpp = $false; c = $false; python = $false }
-        'github.copilot.chat.enabled' = $false
-        'github.copilot.editor.enableAutoCompletions' = $false
-        'github.copilot.nextEditSuggestions.enabled' = $false
-        'github.copilot.inlineSuggest.enable' = $false
-    }
-    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'settings.json') -InputObject $WorkspaceSettings -Depth 30
-
-    $TasksJson = [ordered]@{
-        version = '2.0.0'
-        tasks = @(
-            [ordered]@{ label = 'build debug C++14'; type = 'shell'; command = 'g++14'; args = @('-g', '-O0', '-Wall', '-Wextra', '${file}', '-o', '${fileDirname}\${fileBasenameNoExtension}.exe'); group = 'build'; problemMatcher = @('$gcc') },
-            [ordered]@{ label = 'build debug C++17'; type = 'shell'; command = 'g++17'; args = @('-g', '-O0', '-Wall', '-Wextra', '${file}', '-o', '${fileDirname}\${fileBasenameNoExtension}.exe'); group = [ordered]@{ kind = 'build'; isDefault = $true }; problemMatcher = @('$gcc') },
-            [ordered]@{ label = 'build debug C++20'; type = 'shell'; command = 'g++20'; args = @('-g', '-O0', '-Wall', '-Wextra', '${file}', '-o', '${fileDirname}\${fileBasenameNoExtension}.exe'); group = 'build'; problemMatcher = @('$gcc') },
-            [ordered]@{ label = 'build debug C11'; type = 'shell'; command = 'gcc'; args = @('-std=c11', '-g', '-O0', '-Wall', '-Wextra', '${file}', '-o', '${fileDirname}\${fileBasenameNoExtension}.exe'); group = 'build'; problemMatcher = @('$gcc') },
-            [ordered]@{ label = 'run active executable'; type = 'shell'; command = '${fileDirname}\${fileBasenameNoExtension}.exe'; group = 'test'; problemMatcher = @() },
-            [ordered]@{ label = 'run Python3'; type = 'shell'; command = 'python3'; args = @('${file}'); group = 'test'; problemMatcher = @() }
-        )
-    }
-    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'tasks.json') -InputObject $TasksJson -Depth 30
-
-    $CppDebugSetup = @(
-        [ordered]@{ description = 'Enable pretty-printing for gdb'; text = '-enable-pretty-printing'; ignoreFailures = $true }
-    )
-    $GdbPath = Convert-ToForwardSlashPath (Join-Path $UcrtBin 'gdb.exe')
-
-    $LaunchJson = [ordered]@{
-        version = '0.2.0'
-        configurations = @(
-            [ordered]@{ name = 'Debug C++14 active file'; type = 'cppdbg'; request = 'launch'; program = '${fileDirname}\${fileBasenameNoExtension}.exe'; args = @(); stopAtEntry = $false; cwd = '${fileDirname}'; environment = @(); externalConsole = $false; MIMode = 'gdb'; miDebuggerPath = $GdbPath; preLaunchTask = 'build debug C++14'; setupCommands = $CppDebugSetup },
-            [ordered]@{ name = 'Debug C++17 active file'; type = 'cppdbg'; request = 'launch'; program = '${fileDirname}\${fileBasenameNoExtension}.exe'; args = @(); stopAtEntry = $false; cwd = '${fileDirname}'; environment = @(); externalConsole = $false; MIMode = 'gdb'; miDebuggerPath = $GdbPath; preLaunchTask = 'build debug C++17'; setupCommands = $CppDebugSetup },
-            [ordered]@{ name = 'Debug C++20 active file'; type = 'cppdbg'; request = 'launch'; program = '${fileDirname}\${fileBasenameNoExtension}.exe'; args = @(); stopAtEntry = $false; cwd = '${fileDirname}'; environment = @(); externalConsole = $false; MIMode = 'gdb'; miDebuggerPath = $GdbPath; preLaunchTask = 'build debug C++20'; setupCommands = $CppDebugSetup },
-            [ordered]@{ name = 'Debug C11 active file'; type = 'cppdbg'; request = 'launch'; program = '${fileDirname}\${fileBasenameNoExtension}.exe'; args = @(); stopAtEntry = $false; cwd = '${fileDirname}'; environment = @(); externalConsole = $false; MIMode = 'gdb'; miDebuggerPath = $GdbPath; preLaunchTask = 'build debug C11'; setupCommands = $CppDebugSetup },
-            [ordered]@{ name = 'Debug Python3 current file'; type = 'debugpy'; request = 'launch'; program = '${file}'; console = 'integratedTerminal'; cwd = '${fileDirname}'; justMyCode = $true }
-        )
-    }
-    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'launch.json') -InputObject $LaunchJson -Depth 30
-
-    $CppPropertiesJson = [ordered]@{
-        configurations = @(
-            [ordered]@{
-                name = 'MSYS2 UCRT64 GCC'
-                includePath = @('${workspaceFolder}/**', (Convert-ToForwardSlashPath (Join-Path $UcrtBin 'include\**')))
-                defines = @()
-                compilerPath = Convert-ToForwardSlashPath (Join-Path $UcrtBin 'g++.exe')
-                cStandard = 'c11'
-                cppStandard = 'c++17'
-                intelliSenseMode = 'windows-gcc-x64'
-            }
-        )
-        version = 4
-    }
-    Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'c_cpp_properties.json') -InputObject $CppPropertiesJson -Depth 30
-
-    Write-Host "Template created: $TemplateRoot" -ForegroundColor Green
-    return $TemplateRoot
 }
 
 function Write-VersionReport {
@@ -1648,22 +1318,6 @@ function Main {
     Ensure-PreferredHostAndAdmin
     Start-SetupLogging
 
-    if ($SkipAiBlock) {
-        Write-Warning '-SkipAiBlock is set. AI hosts blocking will not be applied.'
-    } elseif (-not $EnableAiBlock) {
-        Write-Host 'AI hosts blocking is disabled by default to avoid security software conflicts.' -ForegroundColor Yellow
-    }
-
-    if ($RestoreHostsFromBackup) {
-        Restore-HostsBackupFull
-        return
-    }
-
-    if ($RestoreHosts) {
-        Restore-HostsManagedSection
-        return
-    }
-
     Write-Section '1. Create folders'
     New-Item -ItemType Directory -Force -Path $Root, $ToolBin, $DownloadDir, $TestDir, $LogDir, $BackupDir | Out-Null
     Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
@@ -1742,15 +1396,8 @@ Ensure-MsysCatInstalled
     Install-PythonDirect
     Create-CommandWrappers
     Configure-Path
-    $TemplateRoot = $null
-    if ($CreateTemplate) {
-        $TemplateRoot = Create-VSCodeTemplate
-    } else {
-        Write-Host 'VS Code CP template creation skipped. Use -CreateTemplate if you want the Desktop\CP-Template sample workspace.' -ForegroundColor Yellow
-    }
     Write-VersionReport
     Run-SmokeTests
-    Apply-AiHostsBlock
 
     Write-Section 'Done'
     Write-Host 'All setup and tests completed.' -ForegroundColor Green
@@ -1765,16 +1412,8 @@ Ensure-MsysCatInstalled
     Write-Host '  Python 3 : python3'
     Write-Host '  Text     : cat'
     Write-Host ''
-    if ($TemplateRoot) {
-        Write-Host 'VS Code template:'
-        Write-Host "  $TemplateRoot"
-        Write-Host 'Code Runner: open the CP-Template folder, then Ctrl + Alt + N runs the current file in the integrated terminal.'
-        Write-Host 'Debug: F5 starts debugging using .vscode\launch.json.'
-        Write-Host ''
-    }
     Write-Host "Test directory: $TestDir"
     Write-Host "Version report: $(Join-Path $TestDir 'version-report.txt')"
-    Write-Host "hosts backup: $BackupPath"
     Write-Host "Transcript log: $TranscriptPath"
     Write-Host "Error log: $ErrorLogPath"
     Write-Host ''
