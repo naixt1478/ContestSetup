@@ -5,7 +5,7 @@
 # Java is intentionally excluded.
 #
 # Safer revision notes:
-# - AI hosts blocking is opt-in: use -EnableAiBlock with -AiBlockListPath or a pinned URL/hash.
+# - AI hosts blocking is enabled by default; use -SkipAiBlock to skip it.
 # - VS Code user settings are not overwritten; optional contest settings can be created in Desktop\CP-Template\.vscode.
 # - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
@@ -17,13 +17,12 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -KeepVSCode
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -RestoreHosts
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -EnableAiBlock -AiBlockListPath .\noai_hosts.txt
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -SkipAiBlock
 #
 # Note: Python 3.10.11 is the default because it is the last Python 3.10 release with Windows installers.
 
 [CmdletBinding()]
 param(
-    [switch]$EnableAiBlock,
     [switch]$SkipAiBlock,
     [string]$AiBlockListPath = '',
     [string]$AiBlockListUrl = '',
@@ -104,6 +103,42 @@ $AllowList = @(
     'winget.azureedge.net', 'cdn.winget.microsoft.com'
 )
 
+$DefaultAiBlockDomains = @(
+    'chat.openai.com',
+    'chatgpt.com',
+    'openai.com',
+    'api.openai.com',
+    'oaistatic.com',
+    'oaiusercontent.com',
+    'anthropic.com',
+    'claude.ai',
+    'api.anthropic.com',
+    'gemini.google.com',
+    'bard.google.com',
+    'generativelanguage.googleapis.com',
+    'makersuite.google.com',
+    'copilot.microsoft.com',
+    'bing.com',
+    'edgeservices.bing.com',
+    'api.githubcopilot.com',
+    'copilot-proxy.githubusercontent.com',
+    'githubcopilot.com',
+    'cursor.com',
+    'cursor.sh',
+    'api.cursor.sh',
+    'tabnine.com',
+    'api.tabnine.com',
+    'codeium.com',
+    'windsurf.com',
+    'supermaven.com',
+    'perplexity.ai',
+    'poe.com',
+    'you.com',
+    'phind.com',
+    'huggingface.co',
+    'replicate.com'
+)
+
 function Write-Section {
     param([Parameter(Mandatory = $true)] [string]$Message)
     Write-Host ''
@@ -176,7 +211,7 @@ function Ensure-PreferredHostAndAdmin {
 
     $Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
 
-    foreach ($Name in @('EnableAiBlock', 'SkipAiBlock', 'RestoreHosts', 'RestoreHostsFromBackup', 'KeepVSCode', 'NoPause', 'SkipSignatureCheck', 'AllowUnverifiedAiBlockUrl')) {
+    foreach ($Name in @('SkipAiBlock', 'RestoreHosts', 'RestoreHostsFromBackup', 'KeepVSCode', 'CreateTemplate', 'NoPause', 'SkipSignatureCheck', 'AllowUnverifiedAiBlockUrl')) {
         $Value = Get-Variable -Name $Name -ValueOnly
         if ($Value) { $Args += "-$Name" }
     }
@@ -184,6 +219,7 @@ function Ensure-PreferredHostAndAdmin {
     $StringParams = @{
         Root = $Root
         MsysRoot = $MsysRoot
+        Msys2CaCertificatePath = $Msys2CaCertificatePath
         DesktopPath = $DesktopPath
         PythonVersion = $PythonVersion
         AiBlockListPath = $AiBlockListPath
@@ -531,6 +567,64 @@ function Add-UserPathFront {
     Write-Host "PATH added: $PathToAdd" -ForegroundColor Green
 }
 
+function Remove-PathEntriesMatching {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Scope,
+        [Parameter(Mandatory = $true)] [scriptblock]$ShouldRemove
+    )
+
+    $Current = [Environment]::GetEnvironmentVariable('Path', $Scope)
+    if ([string]::IsNullOrWhiteSpace($Current)) { return }
+
+    $Removed = New-Object System.Collections.Generic.List[string]
+    $Kept = New-Object System.Collections.Generic.List[string]
+    foreach ($Part in ($Current.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $Normalized = Normalize-PathForCompare $Part
+        if (& $ShouldRemove $Part $Normalized) {
+            $Removed.Add($Part) | Out-Null
+        } else {
+            $Kept.Add($Part) | Out-Null
+        }
+    }
+
+    if ($Removed.Count -gt 0) {
+        [Environment]::SetEnvironmentVariable('Path', ($Kept.ToArray() -join ';'), $Scope)
+        foreach ($PathEntry in $Removed) {
+            Write-Host "PATH removed ($Scope): $PathEntry" -ForegroundColor Yellow
+        }
+    }
+}
+
+function Remove-ConflictingPathEntries {
+    Write-Section 'Clean conflicting PATH entries'
+
+    $RootNorm = Normalize-PathForCompare $Root
+    $MsysRootNorm = Normalize-PathForCompare $MsysRoot
+    $PythonDirNorm = Normalize-PathForCompare $PythonDir
+    $ToolBinNorm = Normalize-PathForCompare $ToolBin
+    $VSCodeBinNorms = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
+        (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft VS Code\bin')
+    ) | Where-Object { $_ } | ForEach-Object { Normalize-PathForCompare $_ }
+
+    $ShouldRemove = {
+        param($Original, $Normalized)
+        return (
+            $Normalized -eq $ToolBinNorm -or
+            $Normalized -eq $PythonDirNorm -or
+            $Normalized.StartsWith("$PythonDirNorm\") -or
+            $Normalized -eq $MsysRootNorm -or
+            $Normalized.StartsWith("$MsysRootNorm\") -or
+            $Normalized -eq $RootNorm -or
+            $VSCodeBinNorms -contains $Normalized
+        )
+    }.GetNewClosure()
+
+    Remove-PathEntriesMatching -Scope 'User' -ShouldRemove $ShouldRemove
+    Remove-PathEntriesMatching -Scope 'Process' -ShouldRemove $ShouldRemove
+}
+
 function Test-WingetHelpSupports {
     param(
         [Parameter(Mandatory = $true)] [string]$Command,
@@ -744,6 +838,30 @@ function Backup-And-RemovePathSafe {
     Write-Host "Backup saved: $BackupTarget" -ForegroundColor Green
 }
 
+function Reset-MSYS2Completely {
+    Write-Section 'Reset existing MSYS2'
+
+    Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
+
+    if (Test-Path $MsysRoot) {
+        $BackupRoot = Join-Path $BackupDir ("msys2-$TimeStamp")
+        Backup-And-RemovePathSafe -Path $MsysRoot -BackupRoot $BackupRoot
+    } else {
+        Write-Host "MSYS2 folder not found: $MsysRoot"
+    }
+}
+
+function Reset-ManagedPython {
+    Write-Section "Reset managed Python $PythonVersion"
+
+    if (Test-Path $PythonDir) {
+        $BackupRoot = Join-Path $BackupDir ("python-$TimeStamp")
+        Backup-And-RemovePathSafe -Path $PythonDir -BackupRoot $BackupRoot
+    } else {
+        Write-Host "Managed Python folder not found: $PythonDir"
+    }
+}
+
 function Reset-VSCodeCompletely {
     Write-Section 'Reset existing VS Code'
     Stop-VSCodeProcesses
@@ -816,6 +934,112 @@ function Get-RequiredVSCodeExtensions {
         'ms-python.python',
         'ms-python.debugpy'
     )
+}
+
+function Get-BlockedVSCodeExtensions {
+    return @(
+        'github.copilot',
+        'github.copilot-chat',
+        'ms-vscode.vscode-ai',
+        'tabnine.tabnine-vscode',
+        'codeium.codeium',
+        'supermaven.supermaven',
+        'continue.continue',
+        'sourcegraph.cody-ai',
+        'amazonwebservices.amazon-q-vscode'
+    )
+}
+
+function Get-VSCodeUserSettingsPath {
+    return (Join-Path $env:APPDATA 'Code\User\settings.json')
+}
+
+function Set-ObjectProperty {
+    param(
+        [Parameter(Mandatory = $true)] [object]$Object,
+        [Parameter(Mandatory = $true)] [string]$Name,
+        [Parameter(Mandatory = $true)] [AllowNull()] [object]$Value
+    )
+
+    $Property = $Object.PSObject.Properties[$Name]
+    if ($Property) {
+        $Property.Value = $Value
+    } else {
+        $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+    }
+}
+
+function Set-VSCodeAiHiddenSettings {
+    Write-Section 'Apply VS Code AI hiding settings'
+
+    $SettingsPath = Get-VSCodeUserSettingsPath
+    $SettingsDir = Split-Path $SettingsPath -Parent
+    New-Item -ItemType Directory -Force -Path $SettingsDir | Out-Null
+
+    $Settings = [pscustomobject]@{}
+    if (Test-Path $SettingsPath) {
+        try {
+            $Raw = Get-Content -Path $SettingsPath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($Raw)) {
+                $Settings = $Raw | ConvertFrom-Json
+            }
+        } catch {
+            $BackupPathForSettings = "$SettingsPath.before-ai-hide.$TimeStamp"
+            Copy-Item -Path $SettingsPath -Destination $BackupPathForSettings -Force -ErrorAction SilentlyContinue
+            Write-Warning "Existing VS Code settings.json could not be parsed. Backup created: $BackupPathForSettings"
+            $Settings = [pscustomobject]@{}
+        }
+    }
+
+    $CopilotEnable = [ordered]@{
+        '*' = $false
+        plaintext = $false
+        markdown = $false
+        scminput = $false
+        cpp = $false
+        c = $false
+        python = $false
+    }
+
+    $SettingsToApply = [ordered]@{
+        'chat.commandCenter.enabled' = $false
+        'chat.disableAIFeatures' = $true
+        'inlineChat.enabled' = $false
+        'inlineChat.accessibleDiffView' = 'off'
+        'workbench.commandPalette.experimental.enableNaturalLanguageSearch' = $false
+        'github.copilot.enable' = $CopilotEnable
+        'github.copilot.chat.enabled' = $false
+        'github.copilot.editor.enableAutoCompletions' = $false
+        'github.copilot.nextEditSuggestions.enabled' = $false
+        'github.copilot.inlineSuggest.enable' = $false
+        'extensions.ignoreRecommendations' = $true
+    }
+
+    foreach ($Key in $SettingsToApply.Keys) {
+        Set-ObjectProperty -Object $Settings -Name $Key -Value $SettingsToApply[$Key]
+    }
+
+    Write-JsonUtf8NoBom -Path $SettingsPath -InputObject $Settings -Depth 30
+    Write-Host "VS Code AI hiding settings applied: $SettingsPath" -ForegroundColor Green
+}
+
+function Remove-BlockedVSCodeExtensions {
+    Write-Section 'Remove VS Code AI extensions'
+
+    $CodeCmd = Get-VSCodeCommandPath
+    if (-not $CodeCmd) {
+        Write-Warning 'code.cmd not found. Skipping VS Code AI extension cleanup.'
+        return
+    }
+
+    $InstalledResult = Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList @('--list-extensions') -Quiet
+    $Installed = @($InstalledResult.Output | ForEach-Object { $_.ToString().Trim().ToLowerInvariant() })
+    foreach ($Extension in Get-BlockedVSCodeExtensions) {
+        if ($Installed -contains $Extension.ToLowerInvariant()) {
+            Write-Host "Removing VS Code AI extension: $Extension"
+            Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList @('--uninstall-extension', $Extension) | Out-Null
+        }
+    }
 }
 
 function Warn-IfRequiredVSCodeExtensionsMissing {
@@ -1031,8 +1255,8 @@ function Test-DomainAllowed {
 function Apply-AiHostsBlock {
     Write-Section 'AI hosts block'
 
-    if (-not $EnableAiBlock) {
-        Write-Host 'AI hosts block is disabled by default. Use -EnableAiBlock to apply it.' -ForegroundColor Yellow
+    if ($SkipAiBlock) {
+        Write-Host 'AI hosts block skipped by -SkipAiBlock.' -ForegroundColor Yellow
         return
     }
 
@@ -1049,7 +1273,9 @@ function Apply-AiHostsBlock {
         Invoke-DownloadFile -Url $AiBlockListUrl -OutFile $RawListPath
         Assert-FileSha256 -Path $RawListPath -ExpectedSha256 $AiBlockListSha256
     } else {
-        throw 'Specify -AiBlockListPath or -AiBlockListUrl when using -EnableAiBlock.'
+        $DefaultLines = @($DefaultAiBlockDomains | Sort-Object -Unique | ForEach-Object { "0.0.0.0 $_" })
+        Write-LinesUtf8NoBom -Path $RawListPath -Lines ([string[]]$DefaultLines)
+        Write-Host 'Using built-in default AI blocklist.' -ForegroundColor Yellow
     }
 
     if (-not (Test-Path $BackupPath)) {
@@ -1236,6 +1462,15 @@ function Create-VSCodeTemplate {
         'python.defaultInterpreterPath' = $PythonExe
         'python.terminal.activateEnvironment' = $false
         'debug.openDebug' = 'openOnDebugBreak'
+        'chat.commandCenter.enabled' = $false
+        'chat.disableAIFeatures' = $true
+        'inlineChat.enabled' = $false
+        'workbench.commandPalette.experimental.enableNaturalLanguageSearch' = $false
+        'github.copilot.enable' = [ordered]@{ '*' = $false; plaintext = $false; markdown = $false; scminput = $false; cpp = $false; c = $false; python = $false }
+        'github.copilot.chat.enabled' = $false
+        'github.copilot.editor.enableAutoCompletions' = $false
+        'github.copilot.nextEditSuggestions.enabled' = $false
+        'github.copilot.inlineSuggest.enable' = $false
     }
     Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'settings.json') -InputObject $WorkspaceSettings -Depth 30
 
@@ -1365,7 +1600,7 @@ function Main {
     Start-SetupLogging
 
     if ($SkipAiBlock) {
-        Write-Warning '-SkipAiBlock is kept only for compatibility. AI blocking is already disabled by default unless -EnableAiBlock is used.'
+        Write-Warning '-SkipAiBlock is set. AI hosts blocking will not be applied.'
     }
 
     if ($RestoreHostsFromBackup) {
@@ -1380,6 +1615,7 @@ function Main {
 
     Write-Section '1. Create folders'
     New-Item -ItemType Directory -Force -Path $Root, $ToolBin, $DownloadDir, $TestDir, $LogDir, $BackupDir | Out-Null
+    Remove-ConflictingPathEntries
 
     Write-Section '2. Check winget'
     if (Test-CommandExists 'winget') {
@@ -1411,7 +1647,10 @@ function Main {
         }
         Install-VSCodeExtensions
     }
+    Remove-BlockedVSCodeExtensions
+    Set-VSCodeAiHiddenSettings
 
+    Reset-MSYS2Completely
     $MSYS2Installed = Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
     if (-not $MSYS2Installed) {
         Write-Warning 'MSYS2 winget install failed. Using direct installer fallback.'
@@ -1451,6 +1690,7 @@ Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout 
     }
     Write-Host 'MSYS2 UCRT64 GCC/GDB/CMake/Ninja/coreutils installed.' -ForegroundColor Green
 
+    Reset-ManagedPython
     Install-PythonDirect
     Create-CommandWrappers
     Configure-Path
