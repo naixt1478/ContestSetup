@@ -327,20 +327,26 @@ function Invoke-NativeCommand {
         Write-Host ("{0} {1}" -f $FilePath, ($ArgumentList -join ' ')) -ForegroundColor DarkGray
     }
 
-    if ($StreamOutput -and -not $Quiet) {
-        $OutputList = New-Object System.Collections.Generic.List[string]
-        & $FilePath @ArgumentList 2>&1 | ForEach-Object {
-            if ($null -ne $_) {
-                $Line = $_.ToString()
-                $OutputList.Add($Line) | Out-Null
-                Write-Host $Line
+    $OldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($StreamOutput -and -not $Quiet) {
+            $OutputList = New-Object System.Collections.Generic.List[string]
+            & $FilePath @ArgumentList 2>&1 | ForEach-Object {
+                if ($null -ne $_) {
+                    $Line = $_.ToString()
+                    $OutputList.Add($Line) | Out-Null
+                    Write-Host $Line
+                }
             }
+            $ExitCode = [int]$LASTEXITCODE
+            $Output = $OutputList.ToArray()
+        } else {
+            $Output = & $FilePath @ArgumentList 2>&1
+            $ExitCode = [int]$LASTEXITCODE
         }
-        $ExitCode = [int]$LASTEXITCODE
-        $Output = $OutputList.ToArray()
-    } else {
-        $Output = & $FilePath @ArgumentList 2>&1
-        $ExitCode = [int]$LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $OldErrorActionPreference
     }
 
     if ((-not $Quiet) -and (-not $StreamOutput)) {
