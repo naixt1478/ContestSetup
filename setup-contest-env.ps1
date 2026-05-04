@@ -6,7 +6,7 @@
 #
 # Safer revision notes:
 # - AI hosts blocking is opt-in: use -EnableAiBlock with -AiBlockListPath or a pinned URL/hash.
-# - VS Code user settings are not overwritten; contest settings are stored in Desktop\CP-Template\.vscode.
+# - VS Code user settings are not overwritten; optional contest settings can be created in Desktop\CP-Template\.vscode.
 # - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
 # - Directly downloaded installers are Authenticode-checked unless -SkipSignatureCheck is used.
@@ -32,6 +32,7 @@ param(
     [switch]$RestoreHosts,
     [switch]$RestoreHostsFromBackup,
     [switch]$KeepVSCode,
+    [switch]$CreateTemplate,
     [switch]$NoPause,
     [switch]$SkipSignatureCheck,
 
@@ -290,7 +291,7 @@ function Write-TextUtf8NoBom {
 function Write-LinesUtf8NoBom {
     param(
         [Parameter(Mandatory = $true)] [string]$Path,
-        [Parameter(Mandatory = $true)] [string[]]$Lines
+        [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [AllowEmptyString()] [string[]]$Lines
     )
     $Content = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
     Write-TextUtf8NoBom -Path $Path -Content $Content
@@ -1422,7 +1423,12 @@ Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout 
     Install-PythonDirect
     Create-CommandWrappers
     Configure-Path
-    $TemplateRoot = Create-VSCodeTemplate
+    $TemplateRoot = $null
+    if ($CreateTemplate) {
+        $TemplateRoot = Create-VSCodeTemplate
+    } else {
+        Write-Host 'VS Code CP template creation skipped. Use -CreateTemplate if you want the Desktop\CP-Template sample workspace.' -ForegroundColor Yellow
+    }
     Write-VersionReport
     Run-SmokeTests
     Apply-AiHostsBlock
@@ -1438,11 +1444,13 @@ Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout 
     Write-Host '  Python 3 : python3'
     Write-Host '  Text     : cat'
     Write-Host ''
-    Write-Host 'VS Code template:'
-    Write-Host "  $TemplateRoot"
-    Write-Host 'Code Runner: open the CP-Template folder, then Ctrl + Alt + N runs the current file in the integrated terminal.'
-    Write-Host 'Debug: F5 starts debugging using .vscode\launch.json.'
-    Write-Host ''
+    if ($TemplateRoot) {
+        Write-Host 'VS Code template:'
+        Write-Host "  $TemplateRoot"
+        Write-Host 'Code Runner: open the CP-Template folder, then Ctrl + Alt + N runs the current file in the integrated terminal.'
+        Write-Host 'Debug: F5 starts debugging using .vscode\launch.json.'
+        Write-Host ''
+    }
     Write-Host "Test directory: $TestDir"
     Write-Host "Version report: $(Join-Path $TestDir 'version-report.txt')"
     Write-Host "hosts backup: $BackupPath"
