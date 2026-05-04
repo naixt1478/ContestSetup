@@ -1360,7 +1360,24 @@ function Run-SmokeTests {
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++20.cmd') -ArgumentList @((Join-Path $TestDir 'cpp20.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp20.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++20' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp20.exe') -Quiet).Output) -join "`n") -Expected 'CPP20 OK 20'
 
-    $C11 = @('#include <stdio.h>', '', '_Static_assert(__STDC_VERSION__ >= 201112L, "C11 required");', '', 'int main(void) {', '    printf("C11 OK 11\n");', '    return 0;', '}')
+    $C11 = @(
+    '#include <stdio.h>',
+    '',
+    'int main(void) {',
+    '#ifdef __STDC_VERSION__',
+    '    printf("C Standard Version: %ld\n", __STDC_VERSION__);',
+    '    if (__STDC_VERSION__ >= 201112L) {',
+    '        printf("C11 OK 11\n");',
+    '    } else {',
+    '        printf("Lower than C11\n");',
+    '    }',
+    '#else',
+    '    printf("__STDC_VERSION__ is not defined (Pre-C90?)\n");',
+    '#endif',
+    '    return 0;',
+    '}'
+    )
+
     Write-LinesUtf8NoBom (Join-Path $TestDir 'c11.c') $C11
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'gcc.cmd') -ArgumentList @((Join-Path $TestDir 'c11.c'), '-std=c11', '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'c11.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C11' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'c11.exe') -Quiet).Output) -join "`n") -Expected 'C11 OK 11'
