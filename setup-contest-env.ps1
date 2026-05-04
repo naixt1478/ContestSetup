@@ -410,7 +410,7 @@ function Invoke-DownloadFile {
 function Assert-FileSha256 {
     param(
         [Parameter(Mandatory = $true)] [string]$Path,
-        [Parameter(Mandatory = $true)] [string]$ExpectedSha256
+        [Parameter(Mandatory = $true)] [AllowEmptyString()] [string]$ExpectedSha256
     )
 
     if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) { return }
