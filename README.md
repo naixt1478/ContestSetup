@@ -2,29 +2,29 @@
 
 This repository provides modular PowerShell scripts to quickly set up and tear down a safe, reliable contest environment on Windows.
 
-## 🚀 Installation & Usage
+## Installation & Usage
 
 You can execute the primary scripts directly from the web using the `irm <url> | iex` (Invoke-RestMethod | Invoke-Expression) pattern.
 
-### 1. 🛠️ Install Contest Environment
+### 1. Install Contest Environment
 Installs VS Code, MSYS2 (GCC), Python, and applies contest-safe settings.
 ```powershell
 irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/install-env.ps1 | iex
 ```
 
-### 2. 🚫 Block AI Hosts (Optional)
+### 2. Block AI Hosts (Optional)
 Applies a temporary block to AI domains (e.g., ChatGPT, Copilot) via the `hosts` file. Automatically restores after a set duration (default: 5 hours).
 ```powershell
 irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/install-ai-hosts.ps1 | iex
 ```
 
-### 3. ♻️ Restore/Uninstall Environment
+### 3. Restore/Uninstall Environment
 Removes the contest environment, including MSYS2, Python, VS Code extensions, and path variables.
 ```powershell
 irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore.ps1 | iex
 ```
 
-## 📂 File Structure Overview
+## File Structure Overview
 
 ### Main Entry Points (`irm ... | iex` targets)
 * `install-env.ps1`: Main bootstrap script to set up the entire contest environment.
