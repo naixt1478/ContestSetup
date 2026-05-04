@@ -839,16 +839,36 @@ function Backup-And-RemovePathSafe {
     Write-Host "Backup saved: $BackupTarget" -ForegroundColor Green
 }
 
+function Backup-PathEnvironment {
+    param([Parameter(Mandatory = $true)] [string]$BackupRoot)
+
+    New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
+    $SnapshotPath = Join-Path $BackupRoot 'path-environment-before-cleanup.txt'
+    $Lines = @(
+        'User PATH:',
+        ([Environment]::GetEnvironmentVariable('Path', 'User')),
+        '',
+        'Process PATH:',
+        $env:Path
+    )
+    Write-LinesUtf8NoBom -Path $SnapshotPath -Lines ([string[]]$Lines)
+    Write-Host "PATH snapshot saved: $SnapshotPath" -ForegroundColor Green
+}
+
 function Reset-MSYS2Completely {
     Write-Section 'Reset existing MSYS2'
+
+    $BackupRoot = Join-Path $BackupDir ("msys2-$TimeStamp")
+    if (Test-Path $MsysRoot) {
+        Backup-PathVerified -Path $MsysRoot -BackupRoot $BackupRoot | Out-Null
+    } else {
+        Write-Host "MSYS2 folder not found: $MsysRoot"
+    }
 
     Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
 
     if (Test-Path $MsysRoot) {
-        $BackupRoot = Join-Path $BackupDir ("msys2-$TimeStamp")
         Backup-And-RemovePathSafe -Path $MsysRoot -BackupRoot $BackupRoot
-    } else {
-        Write-Host "MSYS2 folder not found: $MsysRoot"
     }
 }
 
@@ -888,6 +908,16 @@ function Reset-VSCodeCompletely {
         Backup-And-RemovePathSafe -Path $Path -BackupRoot $BackupRoot
     }
 
+    foreach ($Folder in @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code'),
+        (Join-Path $env:ProgramFiles 'Microsoft VS Code'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft VS Code')
+    )) {
+        if ($Folder -and (Test-Path $Folder)) {
+            Backup-PathVerified -Path $Folder -BackupRoot $BackupRoot | Out-Null
+        }
+    }
+
     Uninstall-WingetPackageIfExists -Id 'Microsoft.VisualStudioCode' -NameForLog 'Visual Studio Code'
 
     foreach ($Folder in @(
@@ -896,8 +926,7 @@ function Reset-VSCodeCompletely {
         (Join-Path ${env:ProgramFiles(x86)} 'Microsoft VS Code')
     )) {
         if ($Folder -and (Test-Path $Folder)) {
-            Write-Host "Removing remaining VS Code install folder: $Folder"
-            Remove-Item -Path $Folder -Recurse -Force -ErrorAction Stop
+            Backup-And-RemovePathSafe -Path $Folder -BackupRoot $BackupRoot
         }
     }
 
@@ -1634,6 +1663,7 @@ function Main {
 
     Write-Section '1. Create folders'
     New-Item -ItemType Directory -Force -Path $Root, $ToolBin, $DownloadDir, $TestDir, $LogDir, $BackupDir | Out-Null
+    Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
     Remove-ConflictingPathEntries
 
     Write-Section '2. Check winget'
