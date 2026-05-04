@@ -742,7 +742,8 @@ function Backup-PathVerified {
         [Parameter(Mandatory = $true)] [string]$BackupRoot
     )
 
-    if (-not (Test-Path $Path)) { return $null }
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+
     New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
 
     $Leaf = Split-Path -Path $Path -Leaf
@@ -751,12 +752,48 @@ function Backup-PathVerified {
     $Destination = Join-Path $BackupRoot ("{0}-{1}" -f $SafeLeaf, $Hash)
 
     Write-Host "Backing up: $Path"
-    Copy-Item -Path $Path -Destination $Destination -Recurse -Force -ErrorAction Stop
-    if (-not (Test-Path $Destination)) { throw "Backup failed: $Path" }
+    Write-Host "Backup to : $Destination"
 
-    $ManifestPath = Join-Path $BackupRoot 'backup-manifest.tsv'
-    $Line = "$Destination`t$Path"
-    Add-Content -Path $ManifestPath -Value $Line -Encoding UTF8
+    $Item = Get-Item -LiteralPath $Path -Force
+
+    if ($Item.PSIsContainer) {
+        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+
+        $RoboLogDir = Join-Path $LogDir 'robocopy'
+        New-Item -ItemType Directory -Force -Path $RoboLogDir | Out-Null
+
+        $RoboLogPath = Join-Path $RoboLogDir ("backup-{0}-{1}.log" -f $SafeLeaf, $TimeStamp)
+
+        $RoboArgs = @(
+            $Path,
+            $Destination,
+            '/E',          # include empty directories
+            '/COPY:DAT',   # data, attributes, timestamps
+            '/DCOPY:DAT',  # directory data, attributes, timestamps
+            '/XJ',         # avoid junction loops
+            '/R:2',
+            '/W:1',
+            '/NP',
+            '/NFL',
+            '/NDL',
+            "/LOG+:$RoboLogPath"
+        )
+
+        & robocopy.exe @RoboArgs | Out-Null
+        $RoboExit = $LASTEXITCODE
+
+        if ($RoboExit -ge 8) {
+            throw "Backup failed by robocopy. ExitCode=$RoboExit, Log=$RoboLogPath, Source=$Path, Destination=$Destination"
+        }
+    } else {
+        $DestinationParent = Split-Path -Path $Destination -Parent
+        New-Item -ItemType Directory -Force -Path $DestinationParent | Out-Null
+        Copy-Item -LiteralPath $Path -Destination $Destination -Force
+    }
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        throw "Backup verification failed: $Destination"
+    }
 
     return $Destination
 }
