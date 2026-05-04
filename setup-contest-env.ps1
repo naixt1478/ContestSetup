@@ -437,23 +437,7 @@ function Assert-AuthenticodeValid {
 function Download-VerifiedFile {
     param(
         [Parameter(Mandatory = $true)] [string]$Url,
-        [Parameter(Mandatory = $true)] [string]$OutFile        # ...existing code...
-        
-        Write-Section '4. Install MSYS2 packages'
-        Invoke-MsysBashChecked 'echo MSYS2 initialized'
-        Invoke-MsysBashChecked 'pacman --noconfirm -Syuu'
-        Invoke-MsysBashChecked 'pacman --noconfirm -Syu'
-        
-        $MsysPackages = @(
-            'base-devel',
-            'mingw-w64-ucrt-x86_64-gcc',
-            'mingw-w64-ucrt-x86_64-gdb',
-            'mingw-w64-ucrt-x86_64-make',
-            'mingw-w64-ucrt-x86_64-cmake',
-            'mingw-w64-ucrt-x86_64-ninja',
-            'coreutils'
-        )
-        Invoke-MsysBashChecked ("pacman --needed --noconfirm -S " + ($MsysPackages -join ' '))
+        [Parameter(Mandatory = $true)] [string]$OutFile,
         [string]$ExpectedSha256 = '',
         [string[]]$AllowedPublisherKeywords = @()
     )
@@ -1330,22 +1314,25 @@ function Main {
     if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
     Write-Host "MSYS2 found: $MsysBash" -ForegroundColor Green
 
-    Write-Section '4. Install MSYS2 packages'
-    Invoke-MsysBashChecked 'echo MSYS2 initialized'
-    Invoke-MsysBashChecked 'pacman --noconfirm -Syuu'
-    Invoke-MsysBashChecked 'pacman --noconfirm -Syu'
+# ...existing code...
 
-    $MsysPackages = @(
-        'base-devel',
-        'mingw-w64-ucrt-x86_64-gcc',
-        'mingw-w64-ucrt-x86_64-gdb',
-        'mingw-w64-ucrt-x86_64-make',
-        'mingw-w64-ucrt-x86_64-cmake',
-        'mingw-w64-ucrt-x86_64-ninja',
-        'coreutils'
-    )
-    Invoke-MsysBashChecked ("pacman --needed --noconfirm -S " + ($MsysPackages -join ' '))
+Write-Section '4. Install MSYS2 packages'
+Invoke-MsysBashChecked 'echo MSYS2 initialized'
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu'
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu'
 
+$MsysPackages = @(
+    'base-devel',
+    'mingw-w64-ucrt-x86_64-gcc',
+    'mingw-w64-ucrt-x86_64-gdb',
+    'mingw-w64-ucrt-x86_64-make',
+    'mingw-w64-ucrt-x86_64-cmake',
+    'mingw-w64-ucrt-x86_64-ninja',
+    'coreutils'
+)
+Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' '))
+
+# ...existing code...
     foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), (Join-Path $UcrtBin 'cmake.exe'), (Join-Path $UcrtBin 'ninja.exe'), $MsysCat)) {
         if (-not (Test-Path $RequiredPath)) { throw "Required tool not found: $RequiredPath" }
     }
