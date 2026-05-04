@@ -373,7 +373,12 @@ function Invoke-NativeChecked {
 
     $Result = Invoke-NativeCommand -FilePath $FilePath -ArgumentList $ArgumentList -Quiet:$Quiet -StreamOutput:$StreamOutput
     if ($SuccessExitCodes -notcontains $Result.ExitCode) {
-        throw "Native command failed with exit code $($Result.ExitCode): $FilePath $($ArgumentList -join ' ')"
+        $OutputText = ($Result.Output | Where-Object { $null -ne $_ } | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+        $Message = "Native command failed with exit code $($Result.ExitCode): $FilePath $($ArgumentList -join ' ')"
+        if (-not [string]::IsNullOrWhiteSpace($OutputText)) {
+            $Message += [Environment]::NewLine + [Environment]::NewLine + 'Command output:' + [Environment]::NewLine + $OutputText
+        }
+        throw $Message
     }
     return $Result
 }
@@ -1115,15 +1120,18 @@ function Create-CommandWrappers {
     Write-Section 'Create command wrappers'
     New-Item -ItemType Directory -Force -Path $ToolBin | Out-Null
 
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++14.cmd') @('@echo off', "`"$UcrtBin\g++.exe`" -std=gnu++14 %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++17.cmd') @('@echo off', "`"$UcrtBin\g++.exe`" -std=gnu++17 %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++20.cmd') @('@echo off', "`"$UcrtBin\g++.exe`" -std=gnu++20 %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++.cmd')  @('@echo off', "`"$UcrtBin\g++.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'gcc.cmd')  @('@echo off', "`"$UcrtBin\gcc.exe`" %*")
+    $MsysUsrBin = Split-Path $MsysBash -Parent
+    $MsysToolPathLine = "set `"PATH=$UcrtBin;$MsysUsrBin;%PATH%`""
+
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++14.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++14 %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++17.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++17 %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++20.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++20 %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'gcc.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python3.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'cat.cmd') @('@echo off', "`"$MsysCat`" %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'cmake.cmd') @('@echo off', "`"$UcrtBin\cmake.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'ninja.cmd') @('@echo off', "`"$UcrtBin\ninja.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'cmake.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\cmake.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'ninja.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\ninja.exe`" %*")
 
     Write-Host 'Wrappers created.' -ForegroundColor Green
 }
@@ -1303,22 +1311,22 @@ function Run-SmokeTests {
 
     $Cpp14 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    auto f = [](auto x) { return x + 14; };', '    cout << "CPP14 OK " << f(0) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp14.cpp') $Cpp14
-    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++14.cmd') -ArgumentList @((Join-Path $TestDir 'cpp14.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp14.exe')) | Out-Null
+    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++14.cmd') -ArgumentList @((Join-Path $TestDir 'cpp14.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp14.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++14' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp14.exe') -Quiet).Output) -join "`n") -Expected 'CPP14 OK 14'
 
     $Cpp17 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    pair<int, int> p = {17, 0};', '    auto [a, b] = p;', '    cout << "CPP17 OK " << a + b << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp17.cpp') $Cpp17
-    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++17.cmd') -ArgumentList @((Join-Path $TestDir 'cpp17.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp17.exe')) | Out-Null
+    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++17.cmd') -ArgumentList @((Join-Path $TestDir 'cpp17.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp17.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++17' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp17.exe') -Quiet).Output) -join "`n") -Expected 'CPP17 OK 17'
 
     $Cpp20 = @('#include <bits/stdc++.h>', '#include <concepts>', 'using namespace std;', '', 'template <std::integral T>', 'T twice(T x) {', '    return x * 2;', '}', '', 'int main() {', '    cout << "CPP20 OK " << twice(10) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp20.cpp') $Cpp20
-    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++20.cmd') -ArgumentList @((Join-Path $TestDir 'cpp20.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp20.exe')) | Out-Null
+    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++20.cmd') -ArgumentList @((Join-Path $TestDir 'cpp20.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp20.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++20' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp20.exe') -Quiet).Output) -join "`n") -Expected 'CPP20 OK 20'
 
     $C11 = @('#include <stdio.h>', '', '_Static_assert(__STDC_VERSION__ >= 201112L, "C11 required");', '', 'int main(void) {', '    printf("C11 OK 11\n");', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'c11.c') $C11
-    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'gcc.cmd') -ArgumentList @((Join-Path $TestDir 'c11.c'), '-std=c11', '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'c11.exe')) | Out-Null
+    Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'gcc.cmd') -ArgumentList @((Join-Path $TestDir 'c11.c'), '-std=c11', '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'c11.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C11' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'c11.exe') -Quiet).Output) -join "`n") -Expected 'C11 OK 11'
 
     Write-LinesUtf8NoBom (Join-Path $TestDir 'python3_test.py') @('print("PYTHON3 OK 6")')
