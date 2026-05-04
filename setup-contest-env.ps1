@@ -1206,6 +1206,20 @@ function Install-Msys2CaCertificate {
     Invoke-MsysBashChecked 'update-ca-trust'
 }
 
+function Ensure-MsysCatInstalled {
+    if (Test-Path $MsysCat) {
+        Write-Host "cat.exe found: $MsysCat" -ForegroundColor Green
+        return
+    }
+
+    Write-Warning 'cat.exe was not found in the base MSYS2 installation. Installing coreutils because MSYS2 provides cat through that package.'
+    Invoke-MsysBashChecked 'pacman --needed --noconfirm --disable-download-timeout -S coreutils' -ExplainMsysTlsErrors
+
+    if (-not (Test-Path $MsysCat)) {
+        throw "cat.exe was not found after installing coreutils: $MsysCat"
+    }
+}
+
 function Assert-Output {
     param(
         [Parameter(Mandatory = $true)] [string]$Name,
@@ -1680,16 +1694,16 @@ Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -Exp
 
 $MsysPackages = @(
     'mingw-w64-ucrt-x86_64-gcc',
-    'mingw-w64-ucrt-x86_64-gdb',
-    'coreutils'
+    'mingw-w64-ucrt-x86_64-gdb'
 )
 Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
+Ensure-MsysCatInstalled
 
 # ...existing code...
     foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), $MsysCat)) {
         if (-not (Test-Path $RequiredPath)) { throw "Required tool not found: $RequiredPath" }
     }
-    Write-Host 'MSYS2 UCRT64 GCC/GDB/coreutils installed.' -ForegroundColor Green
+    Write-Host 'MSYS2 UCRT64 GCC/GDB installed. Using cat.exe from the base MSYS2 installation.' -ForegroundColor Green
 
     Reset-ManagedPython
     Install-PythonDirect
