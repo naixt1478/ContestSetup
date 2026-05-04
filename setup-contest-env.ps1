@@ -16,7 +16,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -KeepVSCode
 #
-# Note: Python 3.10.11 is the default because it is the last Python 3.10 release with Windows installers.
+# Note: Python 3.10.11 is installed independently from MSYS2 for version stability.
 
 [CmdletBinding()]
 param(
@@ -971,6 +971,8 @@ function Set-VSCodeAiHiddenSettings {
         'github.copilot.nextEditSuggestions.enabled' = $false
         'github.copilot.inlineSuggest.enable' = $false
         'extensions.ignoreRecommendations' = $true
+        'python.defaultInterpreterPath' = $PythonExe
+        'python.terminal.activateEnvironment' = $false
     }
 
     foreach ($Key in $SettingsToApply.Keys) {
@@ -1237,7 +1239,7 @@ function Configure-Path {
     )) {
         if ($Candidate -and (Test-Path $Candidate)) { Add-UserPathFront $Candidate; break }
     }
-    Write-Host 'C:\CPTools\bin added before MSYS2 so python/python3 resolve to the managed Python 3.10 install.' -ForegroundColor Green
+    Write-Host 'C:\CPTools\bin added before MSYS2 so python/python3 resolve to the managed Windows Python 3.10 install.' -ForegroundColor Green
     Write-Host "MSYS2 UCRT64 bin remains on PATH for GCC runtime DLLs and direct tool access: $UcrtBin" -ForegroundColor Green
 }
 
