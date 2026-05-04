@@ -967,17 +967,30 @@ function Set-VSCodeAiHiddenSettings {
     }
 
     $SettingsToApply = [ordered]@{
+        'workbench.startupEditor' = 'none'
+        'workbench.welcomePage.walkthroughs.openOnInstall' = $false
+        'workbench.tips.enabled' = $false
+        'workbench.enableExperiments' = $false
+        'update.showReleaseNotes' = $false
+        'window.commandCenter' = $false
         'chat.commandCenter.enabled' = $false
         'chat.disableAIFeatures' = $true
+        'chat.agent.enabled' = $false
+        'chat.edits.enabled' = $false
+        'chat.mcp.enabled' = $false
         'inlineChat.enabled' = $false
         'inlineChat.accessibleDiffView' = 'off'
         'workbench.commandPalette.experimental.enableNaturalLanguageSearch' = $false
+        'workbench.settings.enableNaturalLanguageSearch' = $false
         'github.copilot.enable' = $CopilotEnable
         'github.copilot.chat.enabled' = $false
+        'github.copilot.chat.agent.enabled' = $false
+        'github.copilot.chat.edits.enabled' = $false
         'github.copilot.editor.enableAutoCompletions' = $false
         'github.copilot.nextEditSuggestions.enabled' = $false
         'github.copilot.inlineSuggest.enable' = $false
         'extensions.ignoreRecommendations' = $true
+        'extensions.showRecommendationsOnlyOnDemand' = $true
         'python.defaultInterpreterPath' = $PythonExe
         'python.terminal.activateEnvironment' = $false
     }
@@ -1295,17 +1308,17 @@ function Run-SmokeTests {
     Write-Section 'Compile and run tests'
     New-Item -ItemType Directory -Force -Path $TestDir | Out-Null
 
-    $Cpp14 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    auto f = [](auto x) { return x + 14; };', '    cout << "CPP14 OK " << f(0) << "\n";', '    return 0;', '}')
+    $Cpp14 = @('#include <iostream>', '', 'int main() {', '    auto f = [](auto x) { return x + 14; };', '    std::cout << "CPP14 OK " << f(0) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp14.cpp') $Cpp14
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++14.cmd') -ArgumentList @((Join-Path $TestDir 'cpp14.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp14.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++14' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp14.exe') -Quiet).Output) -join "`n") -Expected 'CPP14 OK 14'
 
-    $Cpp17 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    pair<int, int> p = {17, 0};', '    auto [a, b] = p;', '    cout << "CPP17 OK " << a + b << "\n";', '    return 0;', '}')
+    $Cpp17 = @('#include <iostream>', '#include <utility>', '', 'int main() {', '    std::pair<int, int> p = {17, 0};', '    auto [a, b] = p;', '    std::cout << "CPP17 OK " << a + b << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp17.cpp') $Cpp17
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++17.cmd') -ArgumentList @((Join-Path $TestDir 'cpp17.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp17.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++17' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp17.exe') -Quiet).Output) -join "`n") -Expected 'CPP17 OK 17'
 
-    $Cpp20 = @('#include <bits/stdc++.h>', '#include <concepts>', 'using namespace std;', '', 'template <std::integral T>', 'T twice(T x) {', '    return x * 2;', '}', '', 'int main() {', '    cout << "CPP20 OK " << twice(10) << "\n";', '    return 0;', '}')
+    $Cpp20 = @('#include <concepts>', '#include <iostream>', '', 'template <std::integral T>', 'T twice(T x) {', '    return x * 2;', '}', '', 'int main() {', '    std::cout << "CPP20 OK " << twice(10) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp20.cpp') $Cpp20
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++20.cmd') -ArgumentList @((Join-Path $TestDir 'cpp20.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp20.exe')) -StreamOutput | Out-Null
     Assert-Output -Name 'C++20' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp20.exe') -Quiet).Output) -join "`n") -Expected 'CPP20 OK 20'
