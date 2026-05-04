@@ -37,6 +37,7 @@ param(
 
     [string]$Root = "$env:SystemDrive\CPTools",
     [string]$MsysRoot = "$env:SystemDrive\msys64",
+    [string]$Msys2CaCertificatePath = '',
     [string]$DesktopPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),
     [string]$PythonVersion = '3.10.11'
 )
@@ -858,8 +859,39 @@ function Install-MSYS2Direct {
     Write-Host 'MSYS2 direct install completed.' -ForegroundColor Green
 }
 
+function New-Msys2TlsErrorMessage {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Command,
+        [Parameter(Mandatory = $true)] [string]$Output
+    )
+
+    return @"
+MSYS2 pacman failed while verifying an HTTPS certificate.
+
+Command:
+  $Command
+
+Detected output:
+$Output
+
+This usually happens when antivirus HTTPS inspection, a school/company proxy, or another SSL inspection tool replaces the real MSYS2 certificate with a locally signed certificate.
+
+Fix one of these, then run this script again:
+  1. Temporarily disable HTTPS/SSL scanning in the security product.
+  2. Use another network, such as a phone hotspot.
+  3. Export the proxy/security product root CA certificate and pass it to this script:
+     powershell -ExecutionPolicy Bypass -File .\setup-contest-env.ps1 -Msys2CaCertificatePath C:\path\proxy-root.cer
+
+To inspect the current certificate issuer:
+  C:\msys64\usr\bin\bash.exe -lc "curl -Iv https://mirror.msys2.org"
+"@
+}
+
 function Invoke-MsysBashChecked {
-    param([Parameter(Mandatory = $true)] [string]$Command)
+    param(
+        [Parameter(Mandatory = $true)] [string]$Command,
+        [switch]$ExplainMsysTlsErrors
+    )
 
     if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
 
@@ -868,11 +900,38 @@ function Invoke-MsysBashChecked {
     try {
         $env:MSYSTEM = 'UCRT64'
         $env:CHERE_INVOKING = '1'
-        Invoke-NativeChecked -FilePath $MsysBash -ArgumentList @('-lc', $Command) | Out-Null
+        $Result = Invoke-NativeCommand -FilePath $MsysBash -ArgumentList @('-lc', $Command)
+        if ($Result.ExitCode -ne 0) {
+            $OutputText = ($Result.Output -join "`n")
+            if ($ExplainMsysTlsErrors -and
+                ($OutputText -match 'SSL certificate|self-signed certificate|certificate.*verify|schannel|unable to get local issuer certificate')) {
+                throw (New-Msys2TlsErrorMessage -Command $Command -Output $OutputText)
+            }
+            throw "Native command failed with exit code $($Result.ExitCode): $MsysBash -lc $Command"
+        }
     } finally {
         if ($null -eq $OldMSYSTEM) { Remove-Item Env:\MSYSTEM -ErrorAction SilentlyContinue } else { $env:MSYSTEM = $OldMSYSTEM }
         if ($null -eq $OldCHERE) { Remove-Item Env:\CHERE_INVOKING -ErrorAction SilentlyContinue } else { $env:CHERE_INVOKING = $OldCHERE }
     }
+}
+
+function Install-Msys2CaCertificate {
+    if ([string]::IsNullOrWhiteSpace($Msys2CaCertificatePath)) { return }
+    if (-not (Test-Path $Msys2CaCertificatePath)) {
+        throw "MSYS2 CA certificate file not found: $Msys2CaCertificatePath"
+    }
+    if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
+
+    $AnchorDir = Join-Path $MsysRoot 'etc\pki\ca-trust\source\anchors'
+    New-Item -ItemType Directory -Force -Path $AnchorDir | Out-Null
+
+    $BaseName = [IO.Path]::GetFileNameWithoutExtension($Msys2CaCertificatePath)
+    if ([string]::IsNullOrWhiteSpace($BaseName)) { $BaseName = 'custom-root-ca' }
+    $DestPath = Join-Path $AnchorDir "$BaseName.crt"
+
+    Copy-Item -Path $Msys2CaCertificatePath -Destination $DestPath -Force
+    Write-Host "Imported MSYS2 CA certificate: $DestPath" -ForegroundColor Green
+    Invoke-MsysBashChecked 'update-ca-trust'
 }
 
 function Assert-Output {
@@ -1318,8 +1377,9 @@ function Main {
 
 Write-Section '4. Install MSYS2 packages'
 Invoke-MsysBashChecked 'echo MSYS2 initialized'
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu'
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu'
+Install-Msys2CaCertificate
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
 
 $MsysPackages = @(
     'base-devel',
@@ -1330,7 +1390,7 @@ $MsysPackages = @(
     'mingw-w64-ucrt-x86_64-ninja',
     'coreutils'
 )
-Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' '))
+Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
 
 # ...existing code...
     foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), (Join-Path $UcrtBin 'cmake.exe'), (Join-Path $UcrtBin 'ninja.exe'), $MsysCat)) {
