@@ -1422,6 +1422,7 @@ function Create-CommandWrappers {
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++20.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++20 %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'gcc.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
+    Write-LinesUtf8NoBom (Join-Path $ToolBin 'python.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python3.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'cat.cmd') @('@echo off', "`"$MsysCat`" %*")
 
@@ -1430,8 +1431,8 @@ function Create-CommandWrappers {
 
 function Configure-Path {
     Write-Section 'Configure PATH'
-    Add-UserPathFront $ToolBin
     Add-UserPathFront $UcrtBin
+    Add-UserPathFront $ToolBin
     foreach ($Candidate in @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
         (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
@@ -1439,8 +1440,8 @@ function Configure-Path {
     )) {
         if ($Candidate -and (Test-Path $Candidate)) { Add-UserPathFront $Candidate; break }
     }
-    Write-Host "MSYS2 UCRT64 bin added to PATH for direct gcc/g++ usage: $UcrtBin" -ForegroundColor Green
-    Write-Host 'C:\CPTools\bin remains on PATH for versioned wrappers such as g++14, g++17, g++20, and python3.' -ForegroundColor Green
+    Write-Host 'C:\CPTools\bin added before MSYS2 so python/python3 resolve to the managed Python 3.10 install.' -ForegroundColor Green
+    Write-Host "MSYS2 UCRT64 bin remains on PATH for GCC runtime DLLs and direct tool access: $UcrtBin" -ForegroundColor Green
 }
 
 function Create-VSCodeTemplate {
@@ -1581,6 +1582,7 @@ function Write-VersionReport {
     $VersionReport += 'C++14    : g++14'
     $VersionReport += 'C++17    : g++17'
     $VersionReport += 'C++20    : g++20'
+    $VersionReport += 'Python   : python'
     $VersionReport += 'Python 3 : python3'
     $VersionReport += 'Text     : cat'
     $VersionReport += ''
@@ -1597,7 +1599,7 @@ function Write-VersionReport {
     $VersionReport += [string]$GdbVersion
     $VersionReport += ''
     $VersionReport += 'python version:'
-    $PythonVersionLine = ((Invoke-NativeChecked -FilePath $PythonExe -ArgumentList @('--version') -Quiet).Output | Select-Object -First 1)
+    $PythonVersionLine = ((Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'python.cmd') -ArgumentList @('--version') -Quiet).Output | Select-Object -First 1)
     $VersionReport += [string]$PythonVersionLine
     $VersionReport += ''
     $VersionReport += 'cat version:'
@@ -1634,6 +1636,7 @@ function Run-SmokeTests {
     Assert-Output -Name 'C11' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'c11.exe') -Quiet).Output) -join "`n") -Expected 'C11 OK 11'
 
     Write-LinesUtf8NoBom (Join-Path $TestDir 'python3_test.py') @('print("PYTHON3 OK 6")')
+    Assert-Output -Name 'Python' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'python.cmd') -ArgumentList @((Join-Path $TestDir 'python3_test.py')) -Quiet).Output) -join "`n") -Expected 'PYTHON3 OK 6'
     Assert-Output -Name 'Python3' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'python3.cmd') -ArgumentList @((Join-Path $TestDir 'python3_test.py')) -Quiet).Output) -join "`n") -Expected 'PYTHON3 OK 6'
 
     Write-LinesUtf8NoBom (Join-Path $TestDir 'text_test.txt') @('TEXT OK')
@@ -1758,6 +1761,7 @@ Ensure-MsysCatInstalled
     Write-Host '  C++14    : g++14'
     Write-Host '  C++17    : g++17'
     Write-Host '  C++20    : g++20'
+    Write-Host '  Python   : python'
     Write-Host '  Python 3 : python3'
     Write-Host '  Text     : cat'
     Write-Host ''
