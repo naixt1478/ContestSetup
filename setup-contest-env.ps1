@@ -10,7 +10,8 @@
 # - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
 # - Directly downloaded installers are Authenticode-checked unless -SkipSignatureCheck is used.
-# - Only C:\CPTools\bin and VS Code bin are added to the user PATH; compiler/Python access is through wrappers.
+# - C:\msys64\ucrt64\bin is added to the user PATH so gcc/g++ work directly in VS Code terminals.
+# - C:\CPTools\bin is also added for versioned wrappers such as g++14, g++17, g++20, and python3.
 #
 # Common usage:
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
@@ -381,6 +382,25 @@ function Invoke-NativeChecked {
         throw $Message
     }
     return $Result
+}
+
+function Invoke-WithMsysRuntimeChecked {
+    param(
+        [Parameter(Mandatory = $true)] [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [int[]]$SuccessExitCodes = @(0),
+        [switch]$Quiet,
+        [switch]$StreamOutput
+    )
+
+    $OldPath = $env:Path
+    try {
+        $MsysUsrBin = Split-Path $MsysBash -Parent
+        $env:Path = "$UcrtBin;$MsysUsrBin;$OldPath"
+        return Invoke-NativeChecked -FilePath $FilePath -ArgumentList $ArgumentList -SuccessExitCodes $SuccessExitCodes -Quiet:$Quiet -StreamOutput:$StreamOutput
+    } finally {
+        $env:Path = $OldPath
+    }
 }
 
 function Invoke-DownloadFile {
@@ -1139,6 +1159,7 @@ function Create-CommandWrappers {
 function Configure-Path {
     Write-Section 'Configure PATH'
     Add-UserPathFront $ToolBin
+    Add-UserPathFront $UcrtBin
     foreach ($Candidate in @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin'),
         (Join-Path $env:ProgramFiles 'Microsoft VS Code\bin'),
@@ -1146,7 +1167,8 @@ function Configure-Path {
     )) {
         if ($Candidate -and (Test-Path $Candidate)) { Add-UserPathFront $Candidate; break }
     }
-    Write-Host 'Compiler and Python directories are intentionally not added directly to PATH; wrappers in C:\CPTools\bin are used instead.' -ForegroundColor Yellow
+    Write-Host "MSYS2 UCRT64 bin added to PATH for direct gcc/g++ usage: $UcrtBin" -ForegroundColor Green
+    Write-Host 'C:\CPTools\bin remains on PATH for versioned wrappers such as g++14, g++17, g++20, and python3.' -ForegroundColor Green
 }
 
 function Create-VSCodeTemplate {
@@ -1273,10 +1295,11 @@ function Write-VersionReport {
     $VersionReport = @()
     $VersionReport += 'Contest commands'
     $VersionReport += '----------------'
+    $VersionReport += 'C++      : g++'
+    $VersionReport += 'C        : gcc'
     $VersionReport += 'C++14    : g++14'
     $VersionReport += 'C++17    : g++17'
     $VersionReport += 'C++20    : g++20'
-    $VersionReport += 'C        : gcc'
     $VersionReport += 'Python 3 : python3'
     $VersionReport += 'Text     : cat'
     $VersionReport += ''
@@ -1312,22 +1335,22 @@ function Run-SmokeTests {
     $Cpp14 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    auto f = [](auto x) { return x + 14; };', '    cout << "CPP14 OK " << f(0) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp14.cpp') $Cpp14
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++14.cmd') -ArgumentList @((Join-Path $TestDir 'cpp14.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp14.exe')) -StreamOutput | Out-Null
-    Assert-Output -Name 'C++14' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp14.exe') -Quiet).Output) -join "`n") -Expected 'CPP14 OK 14'
+    Assert-Output -Name 'C++14' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp14.exe') -Quiet).Output) -join "`n") -Expected 'CPP14 OK 14'
 
     $Cpp17 = @('#include <bits/stdc++.h>', 'using namespace std;', '', 'int main() {', '    pair<int, int> p = {17, 0};', '    auto [a, b] = p;', '    cout << "CPP17 OK " << a + b << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp17.cpp') $Cpp17
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++17.cmd') -ArgumentList @((Join-Path $TestDir 'cpp17.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp17.exe')) -StreamOutput | Out-Null
-    Assert-Output -Name 'C++17' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp17.exe') -Quiet).Output) -join "`n") -Expected 'CPP17 OK 17'
+    Assert-Output -Name 'C++17' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp17.exe') -Quiet).Output) -join "`n") -Expected 'CPP17 OK 17'
 
     $Cpp20 = @('#include <bits/stdc++.h>', '#include <concepts>', 'using namespace std;', '', 'template <std::integral T>', 'T twice(T x) {', '    return x * 2;', '}', '', 'int main() {', '    cout << "CPP20 OK " << twice(10) << "\n";', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'cpp20.cpp') $Cpp20
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'g++20.cmd') -ArgumentList @((Join-Path $TestDir 'cpp20.cpp'), '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'cpp20.exe')) -StreamOutput | Out-Null
-    Assert-Output -Name 'C++20' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'cpp20.exe') -Quiet).Output) -join "`n") -Expected 'CPP20 OK 20'
+    Assert-Output -Name 'C++20' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'cpp20.exe') -Quiet).Output) -join "`n") -Expected 'CPP20 OK 20'
 
     $C11 = @('#include <stdio.h>', '', '_Static_assert(__STDC_VERSION__ >= 201112L, "C11 required");', '', 'int main(void) {', '    printf("C11 OK 11\n");', '    return 0;', '}')
     Write-LinesUtf8NoBom (Join-Path $TestDir 'c11.c') $C11
     Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'gcc.cmd') -ArgumentList @((Join-Path $TestDir 'c11.c'), '-std=c11', '-O2', '-Wall', '-Wextra', '-o', (Join-Path $TestDir 'c11.exe')) -StreamOutput | Out-Null
-    Assert-Output -Name 'C11' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $TestDir 'c11.exe') -Quiet).Output) -join "`n") -Expected 'C11 OK 11'
+    Assert-Output -Name 'C11' -Actual (((Invoke-WithMsysRuntimeChecked -FilePath (Join-Path $TestDir 'c11.exe') -Quiet).Output) -join "`n") -Expected 'C11 OK 11'
 
     Write-LinesUtf8NoBom (Join-Path $TestDir 'python3_test.py') @('print("PYTHON3 OK 6")')
     Assert-Output -Name 'Python3' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'python3.cmd') -ArgumentList @((Join-Path $TestDir 'python3_test.py')) -Quiet).Output) -join "`n") -Expected 'PYTHON3 OK 6'
@@ -1445,10 +1468,11 @@ Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout 
     Write-Host 'All setup and tests completed.' -ForegroundColor Green
     Write-Host ''
     Write-Host 'Available commands:'
+    Write-Host '  C++      : g++'
+    Write-Host '  C        : gcc'
     Write-Host '  C++14    : g++14'
     Write-Host '  C++17    : g++17'
     Write-Host '  C++20    : g++20'
-    Write-Host '  C        : gcc'
     Write-Host '  Python 3 : python3'
     Write-Host '  Text     : cat'
     Write-Host ''
