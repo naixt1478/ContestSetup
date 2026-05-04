@@ -437,7 +437,23 @@ function Assert-AuthenticodeValid {
 function Download-VerifiedFile {
     param(
         [Parameter(Mandatory = $true)] [string]$Url,
-        [Parameter(Mandatory = $true)] [string]$OutFile,
+        [Parameter(Mandatory = $true)] [string]$OutFile        # ...existing code...
+        
+        Write-Section '4. Install MSYS2 packages'
+        Invoke-MsysBashChecked 'echo MSYS2 initialized'
+        Invoke-MsysBashChecked 'pacman --noconfirm -Syuu'
+        Invoke-MsysBashChecked 'pacman --noconfirm -Syu'
+        
+        $MsysPackages = @(
+            'base-devel',
+            'mingw-w64-ucrt-x86_64-gcc',
+            'mingw-w64-ucrt-x86_64-gdb',
+            'mingw-w64-ucrt-x86_64-make',
+            'mingw-w64-ucrt-x86_64-cmake',
+            'mingw-w64-ucrt-x86_64-ninja',
+            'coreutils'
+        )
+        Invoke-MsysBashChecked ("pacman --needed --noconfirm -S " + ($MsysPackages -join ' '))
         [string]$ExpectedSha256 = '',
         [string[]]$AllowedPublisherKeywords = @()
     )
