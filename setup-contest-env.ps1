@@ -5,7 +5,7 @@
 # Java is intentionally excluded.
 #
 # Safer revision notes:
-# - AI hosts blocking is enabled by default; use -SkipAiBlock to skip it.
+# - AI hosts blocking is opt-in: use -EnableAiBlock with -AiBlockListPath or the built-in default list.
 # - VS Code user settings are not overwritten; optional contest settings can be created in Desktop\CP-Template\.vscode.
 # - -KeepVSCode preserves existing VS Code profile; if VS Code is missing, it installs VS Code and required extensions.
 # - Native commands are checked by exit code instead of relying on try/catch alone.
@@ -17,12 +17,13 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -NoPause
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -KeepVSCode
 #   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -RestoreHosts
-#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -SkipAiBlock
+#   powershell -ExecutionPolicy Bypass -File .\setup-contest-env.deepreview.fixed.ps1 -EnableAiBlock
 #
 # Note: Python 3.10.11 is the default because it is the last Python 3.10 release with Windows installers.
 
 [CmdletBinding()]
 param(
+    [switch]$EnableAiBlock,
     [switch]$SkipAiBlock,
     [string]$AiBlockListPath = '',
     [string]$AiBlockListUrl = '',
@@ -211,7 +212,7 @@ function Ensure-PreferredHostAndAdmin {
 
     $Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
 
-    foreach ($Name in @('SkipAiBlock', 'RestoreHosts', 'RestoreHostsFromBackup', 'KeepVSCode', 'CreateTemplate', 'NoPause', 'SkipSignatureCheck', 'AllowUnverifiedAiBlockUrl')) {
+    foreach ($Name in @('EnableAiBlock', 'SkipAiBlock', 'RestoreHosts', 'RestoreHostsFromBackup', 'KeepVSCode', 'CreateTemplate', 'NoPause', 'SkipSignatureCheck', 'AllowUnverifiedAiBlockUrl')) {
         $Value = Get-Variable -Name $Name -ValueOnly
         if ($Value) { $Args += "-$Name" }
     }
@@ -1259,6 +1260,10 @@ function Apply-AiHostsBlock {
         Write-Host 'AI hosts block skipped by -SkipAiBlock.' -ForegroundColor Yellow
         return
     }
+    if (-not $EnableAiBlock) {
+        Write-Host 'AI hosts block is disabled by default. Use -EnableAiBlock only when hosts changes are allowed.' -ForegroundColor Yellow
+        return
+    }
 
     New-Item -ItemType Directory -Force -Path $BlockDir | Out-Null
     if (-not (Test-Path $HostsPath)) { throw "hosts file not found: $HostsPath" }
@@ -1376,8 +1381,6 @@ function Create-CommandWrappers {
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'gcc.cmd')  @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python3.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'cat.cmd') @('@echo off', "`"$MsysCat`" %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'cmake.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\cmake.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $ToolBin 'ninja.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\ninja.exe`" %*")
 
     Write-Host 'Wrappers created.' -ForegroundColor Green
 }
@@ -1601,6 +1604,8 @@ function Main {
 
     if ($SkipAiBlock) {
         Write-Warning '-SkipAiBlock is set. AI hosts blocking will not be applied.'
+    } elseif (-not $EnableAiBlock) {
+        Write-Host 'AI hosts blocking is disabled by default to avoid security software conflicts.' -ForegroundColor Yellow
     }
 
     if ($RestoreHostsFromBackup) {
@@ -1674,21 +1679,17 @@ Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -Ex
 Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
 
 $MsysPackages = @(
-    'base-devel',
     'mingw-w64-ucrt-x86_64-gcc',
     'mingw-w64-ucrt-x86_64-gdb',
-    'mingw-w64-ucrt-x86_64-make',
-    'mingw-w64-ucrt-x86_64-cmake',
-    'mingw-w64-ucrt-x86_64-ninja',
     'coreutils'
 )
 Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
 
 # ...existing code...
-    foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), (Join-Path $UcrtBin 'cmake.exe'), (Join-Path $UcrtBin 'ninja.exe'), $MsysCat)) {
+    foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), $MsysCat)) {
         if (-not (Test-Path $RequiredPath)) { throw "Required tool not found: $RequiredPath" }
     }
-    Write-Host 'MSYS2 UCRT64 GCC/GDB/CMake/Ninja/coreutils installed.' -ForegroundColor Green
+    Write-Host 'MSYS2 UCRT64 GCC/GDB/coreutils installed.' -ForegroundColor Green
 
     Reset-ManagedPython
     Install-PythonDirect
