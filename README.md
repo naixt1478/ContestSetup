@@ -49,3 +49,14 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore.ps1 | 
 
 ### Standalone Utilities
 * `ai-hosts-block.ps1`: Core logic for applying and scheduling the AI blocklist (invoked by `install-ai-hosts.ps1`).
+
+
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/Restore-LegacyVSCodeFromOldBackups.ps1'))) -ListOnly -NoPause
+
+$Merged = 'C:\CPTools\backup\vscode-merged-manual'
+New-Item -ItemType Directory -Force -Path $Merged | Out-Null
+
+robocopy 'C:\CPTools\backup\vscode-20260504-175616\Code-AAAAAAAAAAAA' "$Merged\Code-AAAAAAAAAAAA" /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:1
+robocopy 'C:\CPTools\backup\vscode-20260504-181000\.vscode-BBBBBBBBBBBB' "$Merged\.vscode-BBBBBBBBBBBB" /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:1
+
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/Restore-LegacyVSCodeFromOldBackups.ps1'))) -BackupRoot 'C:\CPTools\backup\vscode-merged-manual' -RemoveContestArtifacts -NoPause
