@@ -60,3 +60,10 @@ robocopy 'C:\CPTools\backup\vscode-20260504-175616\Code-AAAAAAAAAAAA' "$Merged\C
 robocopy 'C:\CPTools\backup\vscode-20260504-181000\.vscode-BBBBBBBBBBBB' "$Merged\.vscode-BBBBBBBBBBBB" /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:1
 
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/Restore-LegacyVSCodeFromOldBackups.ps1'))) -BackupRoot 'C:\CPTools\backup\vscode-merged-manual' -RemoveContestArtifacts -NoPause
+
+
+irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/Restore-LegacyVSCodeFromOldBackups.ps1 | iex
+
+$RestoreBackupRoot = $null
+
+iex "& { $(irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore.ps1') } -SkipVSCode -SkipMSYS2 -SkipPython -SkipHosts -NoPause"
