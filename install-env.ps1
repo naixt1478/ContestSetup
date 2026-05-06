@@ -110,8 +110,13 @@ try
   foreach ($Module in $Modules)
   {
     Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
-    Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
+    $CacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $ModuleUri = "{0}/{1}?cb={2}" -f $RawBase.TrimEnd('/'), $Module, $CacheBust
 
+    Invoke-RestMethod -Uri $ModuleUri `
+      -Headers @{ "Cache-Control" = "no-cache"; "Pragma" = "no-cache" } `
+      -ErrorAction Stop |
+      Invoke-Expression
     if ($Module -eq "common.ps1")
     {
       Start-SetupLogging
