@@ -66,6 +66,6 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/Restore-Legacy
 
 $RestoreBackupRoot = $null
 
-iex "& { $(irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore.ps1') } -SkipVSCode -SkipMSYS2 -SkipPython -SkipHosts"
+iex "& { $(irm 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore.ps1') } -SkipVSCode -SkipPython -SkipHosts"
 
 winget uninstall --name 'Python 3.10' --silent --source winget --accept-source-agreements --disable-interactivity
