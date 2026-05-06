@@ -32,48 +32,56 @@ function Get-PreferredPowerShell
   if ($Pwsh) { return $Pwsh.Source }
   return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 }
-
 if (-not (Test-IsAdmin))
 {
   Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
+
+  $SelfPath = $MyInvocation.MyCommand.Path
+
+  if ([string]::IsNullOrWhiteSpace($SelfPath))
+  {
+    $TempRoot = Join-Path $env:TEMP "contest-env-installer"
+    New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
+
+    $SelfPath = Join-Path $TempRoot "install-env.ps1"
+    Invoke-RestMethod -Uri "$RawBase/install-env.ps1" -OutFile $SelfPath -ErrorAction Stop
+  }
+
   $StartArgs = @(
-    "-NoExit"
-    "-NoProfile"
-    "-ExecutionPolicy", "Bypass"
-    "-File", $MyInvocation.MyCommand.Path
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $SelfPath
   )
-  if ($KeepVSCode)
-  {
-    $StartArgs += "-KeepVSCode"
-  }
-  if ($NoPause)
-  {
-    $StartArgs += "-NoPause"
-  }
-  if ($SkipSignatureCheck)
-  {
-    $StartArgs += "-SkipSignatureCheck"
-  }
-  if ($Root)
+
+  if ($KeepVSCode) { $StartArgs += "-KeepVSCode" }
+  if ($NoPause) { $StartArgs += "-NoPause" }
+  if ($SkipSignatureCheck) { $StartArgs += "-SkipSignatureCheck" }
+
+  if (-not [string]::IsNullOrWhiteSpace($Root))
   {
     $StartArgs += "-Root"
     $StartArgs += $Root
   }
-  if ($MsysRoot)
+
+  if (-not [string]::IsNullOrWhiteSpace($MsysRoot))
   {
     $StartArgs += "-MsysRoot"
     $StartArgs += $MsysRoot
   }
-  if ($PythonVersion)
+
+  if (-not [string]::IsNullOrWhiteSpace($PythonVersion))
   {
     $StartArgs += "-PythonVersion"
     $StartArgs += $PythonVersion
   }
-  if ($Msys2CaCertificatePath)
+
+  if (-not [string]::IsNullOrWhiteSpace($Msys2CaCertificatePath))
   {
     $StartArgs += "-Msys2CaCertificatePath"
     $StartArgs += $Msys2CaCertificatePath
   }
+
   Start-Process -FilePath (Get-PreferredPowerShell) -ArgumentList $StartArgs -Verb RunAs -Wait
   exit
 }
@@ -127,7 +135,11 @@ catch
 }
 finally
 {
-  Stop-SetupLogging
+  if (Get-Command Stop-SetupLogging -ErrorAction SilentlyContinue)
+  {
+    try { Stop-SetupLogging } catch {}
+  }
+
   if (-not $NoPause)
   {
     Write-Host "Press Enter to close this window..." -ForegroundColor Yellow
