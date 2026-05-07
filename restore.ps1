@@ -16,8 +16,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# restore-common.ps1에서 StrictMode 상태로 미초기화 변수를 읽지 않도록 미리 선언합니다.
-$script:RestoreBackupRoot = $null
+$RepoOwner = "naixt1478"
+$RepoName  = "ContestSetup"
+$Branch    = "main"
+$RawBase   = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
 
 function Test-IsAdmin {
     $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -31,20 +33,26 @@ function Get-PreferredPowerShell {
     return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 }
 
-function Get-ScriptDirectory {
-    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { return $PSScriptRoot }
-    if ($PSCommandPath) { return (Split-Path -Parent $PSCommandPath) }
-    if ($MyInvocation.MyCommand.Path) { return (Split-Path -Parent $MyInvocation.MyCommand.Path) }
-    return (Get-Location).Path
+function Invoke-RestoreModuleFromRaw {
+    param(
+        [Parameter(Mandatory = $true)] [string]$ModuleName,
+        [Parameter(Mandatory = $true)] [bool]$Critical
+    )
+
+    Write-Host "Running $ModuleName..." -ForegroundColor Yellow
+    try {
+        Invoke-RestMethod "$RawBase/$ModuleName" | Invoke-Expression
+        return $true
+    }
+    catch {
+        if ($Critical) { throw }
+        Write-Warning "Module failed but restore will continue: $ModuleName"
+        Write-Warning $_.Exception.Message
+        return $false
+    }
 }
 
-$ScriptDir = Get-ScriptDirectory
-
 if (-not (Test-IsAdmin)) {
-    if (-not $MyInvocation.MyCommand.Path) {
-        throw '관리자 권한 재실행을 하려면 restore.ps1 파일로 저장한 뒤 -File 방식으로 실행해야 합니다.'
-    }
-
     Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
     $Args = @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $MyInvocation.MyCommand.Path)
     if ($SkipVSCode) { $Args += "-SkipVSCode" }
@@ -63,47 +71,52 @@ if (-not (Test-IsAdmin)) {
 
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
-Write-Host "Contest Environment Restore (Modular / Local)" -ForegroundColor Cyan
-Write-Host "ScriptDir : $ScriptDir"
-Write-Host "Root      : $Root"
-Write-Host "MsysRoot  : $MsysRoot"
+Write-Host "Contest Environment Restore (Modular)" -ForegroundColor Cyan
+Write-Host "Repository : $RepoOwner/$RepoName"
+Write-Host "Branch     : $Branch"
 Write-Host ""
 
-$Modules = @("common.ps1", "restore-common.ps1")
-if (-not $SkipHosts) { $Modules += "restore-hosts.ps1" }
-if (-not $SkipVSCode) { $Modules += "restore-vscode.ps1" }
-if (-not $SkipMSYS2) { $Modules += "restore-msys2.ps1" }
-if (-not $SkipPython) { $Modules += "restore-python.ps1" }
-if (-not $SkipPath) { $Modules += "restore-path.ps1" }
+$CriticalModules = @("common.ps1", "restore-common.ps1")
+$RestoreModules = @()
+if (-not $SkipHosts) { $RestoreModules += "restore-hosts.ps1" }
+if (-not $SkipVSCode) { $RestoreModules += "restore-vscode.ps1" }
+if (-not $SkipMSYS2) { $RestoreModules += "restore-msys2.ps1" }
+if (-not $SkipPython) { $RestoreModules += "restore-python.ps1" }
+if (-not $SkipPath) { $RestoreModules += "restore-path.ps1" }
 
-$Total = $Modules.Count
+$Total = $CriticalModules.Count + $RestoreModules.Count
 $Step = 1
-$Module = $null
+$FailedModules = New-Object System.Collections.Generic.List[string]
 
 try {
-    foreach ($Module in $Modules) {
-        $ModulePath = Join-Path $ScriptDir $Module
-        if (-not (Test-Path -LiteralPath $ModulePath)) {
-            throw "필수 복구 모듈을 찾지 못했습니다: $ModulePath"
-        }
+    foreach ($Module in $CriticalModules) {
+        Write-Host "[$Step/$Total]" -NoNewline
+        Invoke-RestoreModuleFromRaw -ModuleName $Module -Critical $true | Out-Null
+        $Step++
+    }
 
-        Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
-        # 중요: Invoke-Expression을 함수 내부에서 실행하지 않고 dot-source로 현재 스크립트 scope에 로드합니다.
-        . $ModulePath
+    foreach ($Module in $RestoreModules) {
+        Write-Host "[$Step/$Total]" -NoNewline
+        $Ok = Invoke-RestoreModuleFromRaw -ModuleName $Module -Critical $false
+        if (-not $Ok) { $FailedModules.Add($Module) | Out-Null }
         $Step++
     }
 
     Write-Host ""
-    Write-Host "All restores completed successfully." -ForegroundColor Green
+    if ($FailedModules.Count -eq 0) {
+        Write-Host "All restores completed successfully." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Restore completed with partial failures." -ForegroundColor Yellow
+        Write-Host "Failed modules: $($FailedModules -join ', ')" -ForegroundColor Yellow
+        Write-Host "The modules after the failed one were still attempted." -ForegroundColor Yellow
+    }
     Write-Host "Important: restart PowerShell and VS Code to reload PATH." -ForegroundColor Yellow
-}
-catch {
+} catch {
     Write-Host ""
     Write-Host "FATAL ERROR during $Module" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
-    throw
-}
-finally {
+} finally {
     if (-not $NoPause) {
         Write-Host "Press Enter to close this window..." -ForegroundColor Yellow
         try { Read-Host | Out-Null } catch {}
