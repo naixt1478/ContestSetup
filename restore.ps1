@@ -34,8 +34,14 @@ function Get-PreferredPowerShell {
 }
 
 if (-not (Test-IsAdmin)) {
-    Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
-    $Args = @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $MyInvocation.MyCommand.Path)
+    if (-not $PSCommandPath) {
+        Write-Host "웹에서 직접 실행(iex)할 경우 파워셸을 관리자 권한으로 열고 시도해주세요." -ForegroundColor Red
+        exit
+    }
+
+    # 2. 경로가 있다면 관리자 권한으로 재실행 시도
+    Write-Host "관리자 권한을 요청합니다..." -ForegroundColor Yellow
+    $Args = @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
     if ($SkipVSCode) { $Args += "-SkipVSCode" }
     if ($SkipMSYS2) { $Args += "-SkipMSYS2" }
     if ($SkipPython) { $Args += "-SkipPython" }
