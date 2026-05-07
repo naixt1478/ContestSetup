@@ -10,7 +10,20 @@ function Get-ContestStringVariable {
 
     $Value = $null
 
-    foreach ($Scope in @(1, 'Script', 'Global')) {
+    # First use normal dynamic lookup. This is important because restore-msys2.ps1 is
+    # dot-sourced from restore.ps1, and $MsysRoot can live in an outer scope.
+    try {
+        $Var = Get-Variable -Name $Name -ErrorAction SilentlyContinue
+        if ($Var -and $null -ne $Var.Value) {
+            $Value = [string]$Var.Value
+            if (-not [string]::IsNullOrWhiteSpace($Value)) { return $Value }
+        }
+    }
+    catch {}
+
+    # Then scan nearby scopes defensively. Older restore wrappers may dot-source modules
+    # inside helper functions, so the caller's variables are not always exactly Scope 1.
+    foreach ($Scope in @(0, 1, 2, 3, 4, 5, 'Script', 'Global')) {
         try {
             $Var = Get-Variable -Name $Name -Scope $Scope -ErrorAction SilentlyContinue
             if ($Var -and $null -ne $Var.Value) {
@@ -27,7 +40,29 @@ function Get-ContestStringVariable {
 function Get-DefaultMSYS2Root {
     $Drive = [string]$env:SystemDrive
     if ([string]::IsNullOrWhiteSpace($Drive)) { $Drive = 'C:' }
-    return ($Drive.TrimEnd([char[]]@('\', '/')) + '\msys64')
+    return ($Drive.TrimEnd([char[]]@('\\', '/')) + '\msys64')
+}
+
+function Get-PathStringSafe {
+    param([AllowNull()] [object]$InputObject)
+
+    if ($null -eq $InputObject) { return $null }
+
+    if ($InputObject -is [System.IO.FileSystemInfo]) {
+        return [string]$InputObject.FullName
+    }
+
+    try {
+        $FullNameProperty = $InputObject.PSObject.Properties['FullName']
+        if ($FullNameProperty -and -not [string]::IsNullOrWhiteSpace([string]$FullNameProperty.Value)) {
+            return [string]$FullNameProperty.Value
+        }
+    }
+    catch {}
+
+    $Text = [string]$InputObject
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+    return $Text
 }
 
 function ConvertTo-FullPathSafe {
@@ -51,13 +86,21 @@ function Normalize-PathForCompare {
 
     $FullPath = ConvertTo-FullPathSafe -Path $Path
     if ([string]::IsNullOrWhiteSpace($FullPath)) { return '' }
-    return $FullPath.TrimEnd([char[]]@('\', '/')).ToUpperInvariant()
+    return $FullPath.TrimEnd([char[]]@('\\', '/')).ToUpperInvariant()
 }
 
 function Get-LeafNameSafe {
-    param([Parameter(Mandatory = $true)] [string]$Path)
+    param([AllowNull()] [AllowEmptyString()] [string]$Path)
 
-    $Trimmed = $Path.TrimEnd([char[]]@('\', '/'))
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'Cannot determine leaf name because the path is empty.'
+    }
+
+    $Trimmed = $Path.TrimEnd([char[]]@('\\', '/'))
+    if ([string]::IsNullOrWhiteSpace($Trimmed)) {
+        throw "Cannot determine leaf name from path: $Path"
+    }
+
     $Leaf = $null
 
     try { $Leaf = Split-Path -Path $Trimmed -Leaf } catch {}
@@ -73,7 +116,8 @@ function Get-LeafNameSafe {
 }
 
 function ConvertTo-SafeBackupLeaf {
-    param([Parameter(Mandatory = $true)] [string]$Leaf)
+    param([AllowNull()] [AllowEmptyString()] [string]$Leaf)
+    if ([string]::IsNullOrWhiteSpace($Leaf)) { return $null }
     return ($Leaf -replace '[\\/:*?"<>|]', '_')
 }
 
@@ -89,9 +133,12 @@ function Stop-MSYS2Processes {
 
 function Get-MSYS2SourceFromManifest {
     param(
-        [Parameter(Mandatory = $true)] [string]$BackupRootPath,
-        [Parameter(Mandatory = $true)] [string]$Destination
+        [AllowNull()] [AllowEmptyString()] [string]$BackupRootPath,
+        [AllowNull()] [AllowEmptyString()] [string]$Destination
     )
+
+    if ([string]::IsNullOrWhiteSpace($BackupRootPath)) { return $null }
+    if ([string]::IsNullOrWhiteSpace($Destination)) { return $null }
 
     $ManifestPath = Join-Path $BackupRootPath 'backup-manifest.tsv'
     if (-not (Test-Path -LiteralPath $ManifestPath)) { return $null }
@@ -118,11 +165,12 @@ function Get-MSYS2SourceFromManifest {
 
 function Find-MSYS2BackupSource {
     param(
-        [Parameter(Mandatory = $true)] [string]$BackupRootPath,
-        [Parameter(Mandatory = $true)] [string]$Destination
+        [AllowNull()] [AllowEmptyString()] [string]$BackupRootPath,
+        [AllowNull()] [AllowEmptyString()] [string]$Destination
     )
 
     if ([string]::IsNullOrWhiteSpace($BackupRootPath)) { throw 'BackupRootPath is empty.' }
+    if ([string]::IsNullOrWhiteSpace($Destination)) { throw 'MSYS2 destination path is empty.' }
     if (-not (Test-Path -LiteralPath $BackupRootPath)) { throw "Backup root not found: $BackupRootPath" }
 
     # 1) Prefer the manifest when present. It is the safest way to match an old backup to its original destination.
@@ -132,11 +180,14 @@ function Find-MSYS2BackupSource {
     $Leaf = Get-LeafNameSafe -Path $Destination
     $SafeLeaf = ConvertTo-SafeBackupLeaf -Leaf $Leaf
 
-    # 2) Use the shared helper if it exists, but do not let helper errors stop the whole restore search.
+    # 2) Use the shared helper if it exists, but normalize the return value because older helpers may return a string.
     if (Get-Command Get-BackupChildByLeaf -ErrorAction SilentlyContinue) {
         try {
             $SharedSource = Get-BackupChildByLeaf -BackupRoot $BackupRootPath -Leaf $Leaf
-            if ($SharedSource -and (Test-Path -LiteralPath $SharedSource.FullName)) { return $SharedSource }
+            $SharedSourcePath = ConvertTo-FullPathSafe -Path (Get-PathStringSafe -InputObject $SharedSource)
+            if (-not [string]::IsNullOrWhiteSpace($SharedSourcePath) -and (Test-Path -LiteralPath $SharedSourcePath)) {
+                return Get-Item -LiteralPath $SharedSourcePath -Force
+            }
         }
         catch {
             Write-Warning "Get-BackupChildByLeaf failed. Falling back to manual MSYS2 backup search. Reason: $($_.Exception.Message)"
@@ -176,11 +227,10 @@ function Find-MSYS2BackupSource {
     return $null
 }
 
-
 function Invoke-MSYS2RobocopyMirror {
     param(
-        [Parameter(Mandatory = $true)] [string]$SourcePath,
-        [Parameter(Mandatory = $true)] [string]$DestinationPath
+        [AllowNull()] [AllowEmptyString()] [string]$SourcePath,
+        [AllowNull()] [AllowEmptyString()] [string]$DestinationPath
     )
 
     $SourcePath = ConvertTo-FullPathSafe -Path $SourcePath
@@ -250,25 +300,27 @@ function Restore-MSYS2 {
     if (-not (Get-Command Get-LatestBackupRoot -ErrorAction SilentlyContinue)) {
         throw 'Get-LatestBackupRoot is not loaded. common.ps1 and restore-common.ps1 must run before restore-msys2.ps1.'
     }
-    $BackupRoot = Get-LatestBackupRoot -Prefix 'msys2-'
-    if (-not $BackupRoot) {
+
+    $BackupRootObject = Get-LatestBackupRoot -Prefix 'msys2-'
+    $BackupRootPath = ConvertTo-FullPathSafe -Path (Get-PathStringSafe -InputObject $BackupRootObject)
+    if ([string]::IsNullOrWhiteSpace($BackupRootPath)) {
         Write-Warning 'No MSYS2 backup folder found. Skipping MSYS2 restore.'
         return
     }
 
-    $Source = Find-MSYS2BackupSource -BackupRootPath $BackupRoot.FullName -Destination $EffectiveMsysRoot
-    if (-not $Source) {
-        Write-Warning "No MSYS2 backup found in $($BackupRoot.FullName). Skipping MSYS2 restore."
+    $Source = Find-MSYS2BackupSource -BackupRootPath $BackupRootPath -Destination $EffectiveMsysRoot
+    $SourcePath = ConvertTo-FullPathSafe -Path (Get-PathStringSafe -InputObject $Source)
+    if ([string]::IsNullOrWhiteSpace($SourcePath)) {
+        Write-Warning "No MSYS2 backup found in $BackupRootPath. Skipping MSYS2 restore."
         return
     }
 
-    $SourcePath = ConvertTo-FullPathSafe -Path $Source.FullName
     if ((Normalize-PathForCompare -Path $SourcePath) -eq (Normalize-PathForCompare -Path $EffectiveMsysRoot)) {
         Write-Warning "MSYS2 source and destination are the same path. Skipping to avoid deleting the source: $SourcePath"
         return
     }
 
-    Write-Host "Selected MSYS2 backup root: $($BackupRoot.FullName)" -ForegroundColor Green
+    Write-Host "Selected MSYS2 backup root: $BackupRootPath" -ForegroundColor Green
     Write-Host "Selected MSYS2 source     : $SourcePath" -ForegroundColor Green
     Write-Host "MSYS2 destination         : $EffectiveMsysRoot" -ForegroundColor Green
 
