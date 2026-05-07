@@ -261,7 +261,7 @@ function Register-AutoRestore {
 }
 
 function Unregister-AutoRestore {
-    try { schtasks.exe /Delete /TN $TaskName /F | Out-Null } catch {}
+    try { schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null } catch {}
 }
 
 function Apply-AiHostsBlock {

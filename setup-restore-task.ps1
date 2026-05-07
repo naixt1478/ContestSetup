@@ -80,7 +80,7 @@ if (Test-Path -LiteralPath `$AiScript) {
             Write-Warning "  AI hosts block removal returned exit code `$(`$Proc.ExitCode)."
         }
     } catch {
-        Write-Warning "  AI hosts restore failed: `$(`_.Exception.Message)"
+        Write-Warning "  AI hosts restore failed: `$(`$_.Exception.Message)"
     }
 } else {
     Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray

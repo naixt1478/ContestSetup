@@ -19,6 +19,7 @@ function Install-PythonDirect {
         $ExistingVersion = try { (& $ExistingPython.Source --version 2>&1) -replace 'Python\s*', '' } catch { '' }
         if ($ExistingVersion -match '^3\.10\.') {
             Write-Host "Python 3.10 is already installed: $($ExistingPython.Source) (version $ExistingVersion). Skipping." -ForegroundColor Green
+            $Global:PythonExe = $ExistingPython.Source
             Write-Progress -Activity $PA -Completed
             return
         } else {
