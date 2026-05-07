@@ -229,7 +229,6 @@ function Set-VSCodeAiHiddenSettings
     'extensions.showRecommendationsOnlyOnDemand' = $true
     'extensions.autoCheckUpdates' = $false
     'extensions.autoUpdate' = $false
-    'locale' = 'ko'
     'python.terminal.activateEnvironment' = $false
   }
 
@@ -246,6 +245,17 @@ function Set-VSCodeAiHiddenSettings
 
   Write-JsonUtf8NoBom -Path $SettingsPath -InputObject $Settings -Depth 30
   Write-Host "Contest VS Code settings applied: $SettingsPath" -ForegroundColor Green
+
+  # Set Korean locale via argv.json (VS Code reads locale from here, not settings.json)
+  $ArgvPath = Join-Path (Get-ContestVSCodeUserDataDir) 'argv.json'
+  $ArgvObj = [pscustomobject]@{}
+  if (Test-Path -LiteralPath $ArgvPath)
+  {
+    try { $ArgvObj = Get-Content -LiteralPath $ArgvPath -Raw | ConvertFrom-Json } catch { $ArgvObj = [pscustomobject]@{} }
+  }
+  Set-ObjectProperty -Object $ArgvObj -Name 'locale' -Value 'ko'
+  Write-JsonUtf8NoBom -Path $ArgvPath -InputObject $ArgvObj -Depth 10
+  Write-Host "VS Code locale set to Korean (ko) via argv.json" -ForegroundColor Green
 }
 
 function Get-InstalledContestVSCodeExtensions

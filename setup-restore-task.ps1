@@ -9,30 +9,39 @@ $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 $RestoreScriptContent = @"
 # restore-and-cleanup.ps1
 # Automatically generated script to restore environment and delete ContestSetup folder.
-`$ErrorActionPreference = 'Stop'
+`$ErrorActionPreference = 'Continue'
 
 `$Root = '$Root'
 `$ContestVSCodeRoot = Join-Path `$Root 'vscode-contest'
 `$ManifestPath = Join-Path `$ContestVSCodeRoot 'shortcut-manifest.json'
 
-Write-Host "Restoring VS Code Shortcuts..."
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Host 'Contest Environment Restore & Cleanup' -ForegroundColor Cyan
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Host ''
+
+# 1. Restore VS Code Shortcuts
+Write-Host '[1/5] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
 if (Test-Path -LiteralPath `$ManifestPath) {
     `$Manifest = Get-Content -LiteralPath `$ManifestPath -Raw | ConvertFrom-Json
     foreach (`$Item in `$Manifest) {
         try {
             if (`$Item.Existed -and `$Item.BackupPath -and (Test-Path -LiteralPath `$Item.BackupPath)) {
                 Copy-Item -LiteralPath `$Item.BackupPath -Destination `$Item.ShortcutPath -Force
-                Write-Host "Restored shortcut: `$(`$Item.ShortcutPath)"
+                Write-Host "  Restored: `$(`$Item.ShortcutPath)" -ForegroundColor Green
             }
             elseif (Test-Path -LiteralPath `$Item.ShortcutPath) {
                 Remove-Item -LiteralPath `$Item.ShortcutPath -Force
-                Write-Host "Removed contest shortcut: `$(`$Item.ShortcutPath)"
+                Write-Host "  Removed: `$(`$Item.ShortcutPath)" -ForegroundColor Green
             }
-        } catch { Write-Warning "Failed to restore shortcut: `$(`$Item.ShortcutPath)" }
+        } catch { Write-Warning "  Failed: `$(`$Item.ShortcutPath)" }
     }
+} else {
+    Write-Host '  No shortcut manifest found. Skipping.' -ForegroundColor Gray
 }
 
-Write-Host "Restoring PATH Environment Variable..."
+# 2. Restore PATH Environment Variable
+Write-Host '[2/5] Restoring PATH Environment Variable...' -ForegroundColor Yellow
 `$BackupDir = Join-Path `$Root 'backup'
 `$PathSnapshots = Get-ChildItem -Path `$BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
 if (`$PathSnapshots) {
@@ -43,22 +52,48 @@ if (`$PathSnapshots) {
         if (`$Lines.Count -ge 2 -and `$Lines[0] -eq 'User PATH:') {
             `$UserPath = `$Lines[1]
             [Environment]::SetEnvironmentVariable('Path', `$UserPath, 'User')
-            Write-Host "Restored User PATH."
+            Write-Host '  User PATH restored.' -ForegroundColor Green
         }
     }
+} else {
+    Write-Host '  No PATH backup found. Skipping.' -ForegroundColor Gray
 }
 
-Write-Host "Restoring AI Hosts Block (if applied)..."
+# 3. Restore AI Hosts Block
+Write-Host '[3/5] Restoring AI Hosts Block...' -ForegroundColor Yellow
 `$AiScript = Join-Path `$Root 'ai-hosts-block.ps1'
 if (Test-Path -LiteralPath `$AiScript) {
-    & "powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "`$AiScript" -Restore
+    try {
+        & "powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "`$AiScript" -Restore -Root "`$Root"
+        Write-Host '  AI hosts block removed.' -ForegroundColor Green
+    } catch {
+        Write-Warning "  AI hosts restore failed: `$(`$_.Exception.Message)"
+    }
+} else {
+    Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray
 }
 
-Write-Host "Initiating CPTools removal..."
-`$TempScript = Join-Path `$env:TEMP 'remove-cptools.cmd'
-Set-Content -Path `$TempScript -Value "@echo off`r`ntimeout /t 5 /nobreak >nul`r`nrmdir /s /q `"`$Root`"`r`ndel `"%~f0`""
-Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"`$TempScript`"" -WindowStyle Hidden
-Write-Host "Cleanup script started. This window will close now."
+# 4. Remove CPTools folder
+Write-Host '[4/5] Removing CPTools folder...' -ForegroundColor Yellow
+`$TempBat = Join-Path `$env:TEMP 'remove-cptools.cmd'
+`$BatContent = @"
+
+@echo off
+timeout /t 5 /nobreak >nul
+rmdir /s /q "`$Root"
+del "%~f0"
+`"@
+[IO.File]::WriteAllText(`$TempBat, `$BatContent)
+Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"`$TempBat`"" -WindowStyle Hidden
+Write-Host "  Cleanup scheduled. CPTools will be removed in 5 seconds." -ForegroundColor Green
+
+# 5. Shutdown computer
+Write-Host '[5/5] Shutting down computer in 30 seconds...' -ForegroundColor Yellow
+Write-Host ''
+Write-Host 'All contest environment cleanup completed!' -ForegroundColor Green
+Write-Host 'Computer will shut down in 30 seconds. Close this window to cancel.' -ForegroundColor Red
+Start-Sleep -Seconds 30
+Stop-Computer -Force
 "@
 
 Write-TextUtf8NoBom -Path $RestoreScriptPath -Content $RestoreScriptContent
@@ -74,4 +109,5 @@ Register-ScheduledTask -TaskName 'ContestSetupRestoreAndCleanup' -Action $Action
 
 Write-Host "Scheduled task 'ContestSetupRestoreAndCleanup' registered to run at 2026-05-09 17:10:00." -ForegroundColor Green
 Write-Host "The restore window will be visible when the task runs." -ForegroundColor Yellow
+Write-Host "Computer will automatically shut down after cleanup." -ForegroundColor Yellow
 Write-Progress -Activity $PA -Completed
