@@ -73,11 +73,11 @@ Write-Host '[3/5] Restoring AI Hosts Block...' -ForegroundColor Yellow
 if (Test-Path -LiteralPath `$AiScript) {
     try {
         # Using Start-Process to avoid current session issues and for better error isolation
-        $Proc = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`$AiScript", "-Restore", "-Root", "`$Root") -Wait -PassThru -WindowStyle Hidden
-        if ($Proc.ExitCode -eq 0) {
+        `$Proc = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`$AiScript", "-Restore", "-Root", "`$Root") -Wait -PassThru -WindowStyle Hidden
+        if (`$Proc.ExitCode -eq 0) {
             Write-Host '  AI hosts block removed.' -ForegroundColor Green
         } else {
-            Write-Warning "  AI hosts block removal returned exit code $($Proc.ExitCode)."
+            Write-Warning "  AI hosts block removal returned exit code `$(`$Proc.ExitCode)."
         }
     } catch {
         Write-Warning "  AI hosts restore failed: `$(`_.Exception.Message)"
