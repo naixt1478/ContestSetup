@@ -2,18 +2,18 @@
 
 function Reset-MSYS2Completely {
     Write-Section 'Reset existing MSYS2'
-    $BackupRoot = Join-Path $BackupDir ("msys2-$TimeStamp")
-    if (Test-Path $MsysRoot) { Backup-PathVerified -Path $MsysRoot -BackupRoot $BackupRoot | Out-Null }
     Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
-    if (Test-Path $MsysRoot) { Backup-And-RemovePathSafe -Path $MsysRoot -BackupRoot $BackupRoot }
+    if (Test-Path $MsysRoot) {
+        Write-Host "Removing existing MSYS2 without backup as requested..."
+        Remove-Item -Path $MsysRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Install-MSYS2Direct {
     Write-Section 'Install MSYS2 directly'
     if (Test-Path $MsysBash) { Write-Host "MSYS2 already installed: $MsysBash"; return }
     if ((Test-Path $MsysRoot) -and (-not (Test-Path $MsysBash))) {
-        $BackupRoot = Join-Path $BackupDir ("msys2-incomplete-$TimeStamp")
-        Move-Item -Path $MsysRoot -Destination $BackupRoot -Force
+        Write-Host "MSYS2 root exists but bash is missing. Reinstalling over it..."
     }
     Download-VerifiedFile -Url $Msys2InstallerUrl -OutFile $Msys2InstallerPath -AllowedPublisherKeywords @()
     $RootForInstaller = Convert-ToForwardSlashPath $MsysRoot
@@ -61,8 +61,8 @@ function Ensure-MsysCatInstalled {
     if (-not (Test-Path $MsysCat)) { throw "cat.exe not found." }
 }
 
-if (Test-Path $MsysBash) {
-    Write-Host "MSYS2 is already installed at $MsysBash. Skipping installation." -ForegroundColor Green
+if (Test-Path $MsysRoot) {
+    Write-Host "MSYS2 root directory exists at $MsysRoot. Skipping installation and backups." -ForegroundColor Green
 } else {
     Reset-MSYS2Completely
     if (-not (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2')) { Install-MSYS2Direct }
