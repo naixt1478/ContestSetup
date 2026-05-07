@@ -14,6 +14,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# When run via irm|iex, param() is ignored. Ensure defaults are set.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = "$env:SystemDrive\CPTools" }
+if ([string]::IsNullOrWhiteSpace($MsysRoot)) { $MsysRoot = "$env:SystemDrive\msys64" }
+if ([string]::IsNullOrWhiteSpace($Msys2CaCertificatePath)) { $Msys2CaCertificatePath = '' }
+if ([string]::IsNullOrWhiteSpace($PythonVersion)) { $PythonVersion = '3.10.11' }
+
 $RepoOwner = "naixt1478"
 $RepoName = "ContestSetup"
 $Branch = "main"
