@@ -26,8 +26,13 @@ function Restore-PathFromBackup {
     param([Parameter(Mandatory = $true)] [string]$Source, [Parameter(Mandatory = $true)] [string]$Destination)
     Backup-CurrentPath -Path $Destination
     if (Test-Path $Destination) { Remove-Item -Path $Destination -Recurse -Force }
+
     $Parent = Split-Path -Path $Destination -Parent
-    New-Item -ItemType Directory -Force -Path $Parent | Out-Null
+    # 부모 경로가 존재하지 않는 경우에만 폴더 생성 시도
+    if (-not (Test-Path -LiteralPath $Parent)) {
+        New-Item -ItemType Directory -Force -Path $Parent | Out-Null
+    }
+
     Copy-Item -Path $Source -Destination $Destination -Recurse -Force
     Write-Host "Restored: $Destination" -ForegroundColor Green
 }
