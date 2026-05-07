@@ -16,10 +16,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Predeclare restore backup root so restore-common.ps1 does not fail under StrictMode.
+$script:RestoreBackupRoot = $null
+
 $RepoOwner = "naixt1478"
 $RepoName  = "ContestSetup"
 $Branch    = "main"
 $RawBase   = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
+$ScriptDir = if ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { $PSScriptRoot }
 
 function Test-IsAdmin {
     $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -31,6 +35,27 @@ function Get-PreferredPowerShell {
     $Pwsh = Get-Command pwsh.exe -ErrorAction SilentlyContinue
     if ($Pwsh) { return $Pwsh.Source }
     return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+}
+
+function Invoke-RestoreModule {
+    param([Parameter(Mandatory = $true)] [string]$Module)
+
+    $LocalModulePath = $null
+    if (-not [string]::IsNullOrWhiteSpace($ScriptDir)) {
+        $Candidate = Join-Path $ScriptDir $Module
+        if (Test-Path -LiteralPath $Candidate) {
+            $LocalModulePath = $Candidate
+        }
+    }
+
+    if ($LocalModulePath) {
+        Write-Host "Loading local module: $LocalModulePath" -ForegroundColor DarkGray
+        Get-Content -LiteralPath $LocalModulePath -Raw | Invoke-Expression
+    }
+    else {
+        Write-Host "Loading remote module: $RawBase/$Module" -ForegroundColor DarkGray
+        Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
+    }
 }
 
 if (-not (Test-IsAdmin)) {
@@ -70,7 +95,7 @@ $Step = 1
 try {
     foreach ($Module in $Modules) {
         Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
-        Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
+        Invoke-RestoreModule -Module $Module
         $Step++
     }
 
