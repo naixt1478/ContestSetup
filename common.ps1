@@ -462,7 +462,7 @@ function Install-ByWinget
   {
     $ExitCode = Invoke-Winget -Arguments $Args
     if ($ExitCode -eq 0) { Write-Host "$NameForLog installed by winget." -ForegroundColor Green; return $true }
-    if ((& winget list --id $Id --exact 2>$null) -join "`n" -match [regex]::Escape($Id))
+    if ((& winget list --id $Id --exact --accept-source-agreements 2>$null) -join "`n" -match [regex]::Escape($Id))
     {
       Write-Host "$NameForLog appears to be already installed. Continuing." -ForegroundColor Green; return $true
     }
@@ -477,7 +477,7 @@ function Uninstall-WingetPackageIfExists
   if (-not (Test-CommandExists 'winget')) { return }
   try
   {
-    if ((& winget list --id $Id --exact 2>$null) -join "`n" -notmatch [regex]::Escape($Id)) { return }
+    if ((& winget list --id $Id --exact --accept-source-agreements 2>$null) -join "`n" -notmatch [regex]::Escape($Id)) { return }
   }
   catch { return }
   $Args = @('uninstall', '--id', $Id, '--exact', '--silent')

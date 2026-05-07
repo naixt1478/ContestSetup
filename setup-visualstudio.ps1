@@ -6,7 +6,7 @@ $VSPath = Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\Co
 if (Test-Path -Path $VSPath) {
     Write-Host 'Visual Studio Community 2022 is already installed (found devenv.exe). Skipping.' -ForegroundColor Green
 } else {
-    $WingetCheck = try { (& winget list --id Microsoft.VisualStudio.2022.Community --exact 2>$null) -join "`n" } catch { "" }
+    $WingetCheck = try { (& winget list --id Microsoft.VisualStudio.2022.Community --exact --accept-source-agreements 2>$null) -join "`n" } catch { "" }
     if ($WingetCheck -match [regex]::Escape('Microsoft.VisualStudio.2022.Community')) {
         Write-Host 'Visual Studio Community 2022 is already installed (found via winget). Skipping.' -ForegroundColor Green
     } else {
