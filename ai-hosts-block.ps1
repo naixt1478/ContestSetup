@@ -44,46 +44,113 @@ $BeginMarker = '# >>> CP_CONTEST_AI_BLOCKLIST_BEGIN'
 $EndMarker = '# <<< CP_CONTEST_AI_BLOCKLIST_END'
 
 $DefaultAiBlockDomains = @(
+    # OpenAI / ChatGPT / Codex
     'chat.openai.com',
     'chatgpt.com',
     'openai.com',
     'api.openai.com',
     'oaistatic.com',
     'oaiusercontent.com',
+    'cdn.openai.com',
+    'auth.openai.com',
+    'auth0.openai.com',
+
+    # Anthropic / Claude
     'anthropic.com',
     'claude.ai',
     'api.anthropic.com',
+    'api.claude.ai',
+    'claudeusercontent.com',
+    'cdn.claude.ai',
+
+    # Google Gemini
     'gemini.google.com',
     'bard.google.com',
     'generativelanguage.googleapis.com',
     'makersuite.google.com',
+
+    # Microsoft / GitHub Copilot
     'copilot.microsoft.com',
     'bing.com',
     'edgeservices.bing.com',
     'api.githubcopilot.com',
     'copilot-proxy.githubusercontent.com',
     'githubcopilot.com',
+    'copilot.github.com',
+    'default.exp-tas.com', # VS Code experiments/telemetry
+
+    # Cursor
     'cursor.com',
     'cursor.sh',
     'api.cursor.sh',
+
+    # Tabnine
     'tabnine.com',
     'api.tabnine.com',
+    'update.tabnine.com',
+    'auth.tabnine.com',
+
+    # Codeium
     'codeium.com',
-    'windsurf.com',
+    'api.codeium.com',
+    'server.codeium.com',
+    'ide.codeium.com',
+
+    # Supermaven
     'supermaven.com',
+    'api.supermaven.com',
+
+    # Continue.dev
+    'continue.dev',
+    'api.continue.dev',
+
+    # Sourcegraph Cody
+    'sourcegraph.com',
+    'cody.sourcegraph.com',
+    'api.sourcegraph.com',
+
+    # Amazon Q / CodeWhisperer
+    'codewhisperer.us-east-1.amazonaws.com',
+    'codewhisperer.api.aws',
+
+    # DeepSeek
+    'deepseek.com',
+    'api.deepseek.com',
+    'chat.deepseek.com',
+
+    # Mistral
+    'mistral.ai',
+    'api.mistral.ai',
+    'chat.mistral.ai',
+
+    # Other AI Models / APIs
+    'together.ai',
+    'api.together.xyz',
+    'openrouter.ai',
+    'huggingface.co',
+    'replicate.com',
+    'groq.com',
+    'ollama.com',
+    'registry.ollama.ai',
+
+    # Search & Chat Agents
     'perplexity.ai',
     'poe.com',
     'you.com',
     'phind.com',
-    'huggingface.co',
-    'replicate.com',
-    'cdn.openai.com',
-    'auth.openai.com',
-    'auth0.openai.com',
+    'windsurf.com',
+
+    # Misc IDE Agents
+    'bito.ai',
+    'api.bito.ai',
+    'blackbox.ai',
+    'api.blackbox.ai',
+    'codegeex.cn',
+    'api.codegeex.cn',
+
+    # Analytics / Telemetry
     'events.statsigapi.net',
-    'x.com',
-    'groq.com',
-    'api.claude.ai'
+    'x.com'
 )
 
 function Write-Section {

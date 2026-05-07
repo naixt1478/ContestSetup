@@ -565,6 +565,51 @@ function Restore-NormalVSCodeShortcut
   }
 }
 
+function Disable-VSCodeMarketplace
+{
+  Write-Section 'Disable VS Code Marketplace'
+  $ProductJsonPaths = @(
+    (Join-Path (Get-ContestRootPath) 'vscode\resources\app\product.json'),
+    (Join-Path (Get-ContestRootPath) 'vscode\product.json')
+  )
+  
+  $Found = $false
+  foreach ($Path in $ProductJsonPaths)
+  {
+    if (Test-Path -LiteralPath $Path)
+    {
+      $Found = $true
+      try
+      {
+        $Content = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        if ($null -ne $Content.extensionsGallery)
+        {
+          $Content.extensionsGallery.serviceUrl = "https://127.0.0.1"
+          $Content.extensionsGallery.cacheUrl = "https://127.0.0.1"
+          $Content.extensionsGallery.itemUrl = "https://127.0.0.1"
+          $Content.extensionsGallery.controlUrl = "https://127.0.0.1"
+          Write-JsonUtf8NoBom -Path $Path -InputObject $Content -Depth 10
+          Write-Host "VS Code Marketplace disabled in $Path" -ForegroundColor Green
+        }
+        else
+        {
+          Write-Host "Marketplace already disabled or not found in $Path" -ForegroundColor Yellow
+        }
+      }
+      catch
+      {
+        Write-Warning "Failed to disable marketplace in $Path : $($_.Exception.Message)"
+      }
+      break
+    }
+  }
+  
+  if (-not $Found)
+  {
+    Write-Warning "Could not find product.json to disable the marketplace."
+  }
+}
+
 Write-Section 'Setup VS Code'
 
 $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] VS Code Setup"
@@ -592,6 +637,10 @@ Set-ContestVSCodeShortcut
 Write-Progress -Activity $PA -Status "Creating Wrappers..." -PercentComplete 80
 New-ContestVSCodeLauncher
 New-ContestVSCodeCliWrapper
+
+Write-Progress -Activity $PA -Status "Locking Extension Marketplace..." -PercentComplete 90
+Disable-VSCodeMarketplace
+
 Warn-IfRequiredVSCodeExtensionsMissing
 
 Write-Progress -Activity $PA -Completed
