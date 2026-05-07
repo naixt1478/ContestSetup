@@ -6,6 +6,10 @@ Write-Progress -Activity $PA -Status "Creating cleanup script..." -PercentComple
 
 $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 
+# We use a single-quoted here-string for the parts that don't need expansion from the current scope
+# to avoid escaping nightmare, but we need $Root to be expanded.
+# So we'll use a template approach.
+
 $RestoreScriptContent = @"
 # restore-and-cleanup.ps1
 # Automatically generated script to restore environment and delete ContestSetup folder.
@@ -68,10 +72,15 @@ Write-Host '[3/5] Restoring AI Hosts Block...' -ForegroundColor Yellow
 `$AiScript = Join-Path `$Root 'ai-hosts-block.ps1'
 if (Test-Path -LiteralPath `$AiScript) {
     try {
-        & "powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "`$AiScript" -Restore -Root "`$Root"
-        Write-Host '  AI hosts block removed.' -ForegroundColor Green
+        # Using Start-Process to avoid current session issues and for better error isolation
+        $Proc = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`$AiScript", "-Restore", "-Root", "`$Root") -Wait -PassThru -WindowStyle Hidden
+        if ($Proc.ExitCode -eq 0) {
+            Write-Host '  AI hosts block removed.' -ForegroundColor Green
+        } else {
+            Write-Warning "  AI hosts block removal returned exit code $($Proc.ExitCode)."
+        }
     } catch {
-        Write-Warning "  AI hosts restore failed: `$(`$_.Exception.Message)"
+        Write-Warning "  AI hosts restore failed: `$(`_.Exception.Message)"
     }
 } else {
     Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray
@@ -81,14 +90,17 @@ if (Test-Path -LiteralPath `$AiScript) {
 Write-Progress -Activity `$ProgressActivity -Status '[4/5] Removing CPTools folder...' -PercentComplete 70
 Write-Host '[4/5] Removing CPTools folder...' -ForegroundColor Yellow
 `$TempBat = Join-Path `$env:TEMP 'remove-cptools.cmd'
+# Use double-double quotes for the batch file to handle spaces in $Root
 `$BatLines = @(
     '@echo off',
     'timeout /t 5 /nobreak >nul',
-    ('rmdir /s /q "' + `$Root + '"'),
+    'rmdir /s /q "' + `$Root + '"',
     'del "%~f0"'
 )
 [IO.File]::WriteAllLines(`$TempBat, `$BatLines)
-Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c "' + `$TempBat + '"') -WindowStyle Hidden
+
+# Correct syntax for Start-Process with ArgumentList as an array to avoid quote hell
+Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", `$TempBat) -WindowStyle Hidden
 Write-Host '  Cleanup scheduled. CPTools will be removed in 5 seconds.' -ForegroundColor Green
 
 # 5. Shutdown computer

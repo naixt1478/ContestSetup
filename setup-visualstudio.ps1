@@ -14,10 +14,15 @@ if (Test-Path -Path $VSPath) {
         Write-Host 'Visual Studio Community 2022 is already installed (found via winget). Skipping.' -ForegroundColor Green
         Write-Progress -Activity $PA -Completed
     } else {
-        Write-Progress -Activity $PA -Status "Installing via winget..." -PercentComplete 50
-        $VSInstalled = Install-ByWinget -Id 'Microsoft.VisualStudio.2022.Community' -NameForLog 'Visual Studio Community 2022'
-        if (-not $VSInstalled) {
-            Write-Warning 'Visual Studio Community 2022 winget install failed or skipped. You can manually install it if needed.'
+        Write-Progress -Activity $PA -Status "Installing via winget (with C++ workload)..." -PercentComplete 50
+        # Installing with C++ workload to make it useful for competitive programming
+        $VSArgs = @('install', '--id', 'Microsoft.VisualStudio.2022.Community', '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--override', '"--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive"')
+        
+        $ExitCode = (Invoke-NativeCommand -FilePath 'winget.exe' -ArgumentList $VSArgs).ExitCode
+        if ($ExitCode -eq 0) {
+            Write-Host 'Visual Studio Community 2022 (C++ Workload) installed successfully.' -ForegroundColor Green
+        } else {
+            Write-Warning "Visual Studio installation via winget returned exit code $ExitCode. It might require manual attention or reboot."
         }
         Write-Progress -Activity $PA -Completed
     }
