@@ -400,12 +400,11 @@ function Set-ContestVSCodeShortcut
       }
 
       $Shortcut = $Shell.CreateShortcut($ShortcutPath)
+      $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+      New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
       $Shortcut.TargetPath = $CodeExe
-      $Shortcut.Arguments = @(
-        '--user-data-dir', ('"' + $UserDataDir + '"'),
-        '--extensions-dir', ('"' + $ExtensionsDir + '"')
-      ) -join ' '
-      $Shortcut.WorkingDirectory = (Get-ContestRootPath)
+      $Shortcut.Arguments = "--user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`""
+      $Shortcut.WorkingDirectory = $ContestWorkspace
       $Shortcut.IconLocation = "$CodeExe,0"
       $Shortcut.Description = 'Contest isolated Visual Studio Code'
       $Shortcut.Save()
@@ -445,9 +444,12 @@ function New-ContestVSCodeLauncher
   $ExtensionsDir = Get-ContestVSCodeExtensionsDir
   $LauncherPath = Join-Path $ContestRoot 'Start-Contest-VSCode.ps1'
 
+  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+  New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
+
   $Launcher = @"
 param(
-  [string]`$Path = (Get-Location).Path
+  [string]`$Path = '$ContestWorkspace'
 )
 
 `$CodeExe = '$CodeExe'
@@ -477,9 +479,16 @@ function New-ContestVSCodeCliWrapper
   $UserDataDir = Get-ContestVSCodeUserDataDir
   $ExtensionsDir = Get-ContestVSCodeExtensionsDir
 
+  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+  New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
+
   $Wrapper = @"
 @echo off
-"$CodeCmd" --user-data-dir "$UserDataDir" --extensions-dir "$ExtensionsDir" %*
+if "%~1"=="" (
+  "$CodeCmd" --user-data-dir "$UserDataDir" --extensions-dir "$ExtensionsDir" "$ContestWorkspace"
+) else (
+  "$CodeCmd" --user-data-dir "$UserDataDir" --extensions-dir "$ExtensionsDir" %*
+)
 "@
 
   Write-TextUtf8NoBom -Path $WrapperPath -Content $Wrapper

@@ -2,10 +2,6 @@
 
 function Reset-ManagedPython {
     Write-Section "Reset managed Python $PythonVersion"
-# setup-python.ps1
-
-function Reset-ManagedPython {
-    Write-Section "Reset managed Python $PythonVersion"
     if (Test-Path $PythonDir) {
         $BackupRoot = Join-Path $BackupDir ("python-$TimeStamp")
         Backup-And-RemovePathSafe -Path $PythonDir -BackupRoot $BackupRoot
@@ -14,7 +10,17 @@ function Reset-ManagedPython {
 
 function Install-PythonDirect {
     Write-Section "Install Python $PythonVersion"
-    Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Checking Winget installation..." -PercentComplete 10
+    Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Checking existing installation..." -PercentComplete 10
+
+    # Check if python.exe already exists on the system
+    $ExistingPython = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($ExistingPython) {
+        $ExistingVersion = try { (& $ExistingPython.Source --version 2>&1) -replace 'Python\s*', '' } catch { '' }
+        Write-Host "Python is already installed: $($ExistingPython.Source) (version $ExistingVersion). Skipping." -ForegroundColor Green
+        Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Completed
+        return
+    }
+
     if (-not (Test-Path $PythonExe)) {
         if (-not (Test-Path $PythonInstaller)) {
             Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Downloading Python..." -PercentComplete 30

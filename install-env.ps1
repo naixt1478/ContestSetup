@@ -93,6 +93,14 @@ Write-Host "Repository : $RepoOwner/$RepoName"
 Write-Host "Branch     : $Branch"
 Write-Host ""
 
+# If CPTools folder already exists, remove it before starting fresh installation
+if (Test-Path $Root)
+{
+  Write-Host "Existing CPTools folder found at $Root. Removing for clean installation..." -ForegroundColor Yellow
+  Remove-Item -Path $Root -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host "CPTools folder removed." -ForegroundColor Green
+}
+
 $Modules = @(
   "common.ps1",
   "setup-vscode.ps1",
