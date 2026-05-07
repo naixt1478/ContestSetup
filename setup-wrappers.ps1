@@ -36,6 +36,7 @@ function Create-CommandWrappers {
 
 function Configure-Path {
     Write-Section 'Configure PATH'
+    Remove-ConflictingPathEntries
     Add-UserPathFront $PathBin
     Write-Host "Exposed commands: gcc, g++, gdb, cat" -ForegroundColor Green
 }

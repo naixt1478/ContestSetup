@@ -191,7 +191,6 @@ try
     {
       Start-SetupLogging
       Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
-      Remove-ConflictingPathEntries
     }
 
     # Clear inner progress bar after each module completes
