@@ -12,13 +12,17 @@ function Install-PythonDirect {
     Write-Section "Install Python $PythonVersion"
     Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Checking existing installation..." -PercentComplete 10
 
-    # Check if python.exe already exists on the system
+    # Check if Python 3.10.x already exists on the system
     $ExistingPython = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($ExistingPython) {
         $ExistingVersion = try { (& $ExistingPython.Source --version 2>&1) -replace 'Python\s*', '' } catch { '' }
-        Write-Host "Python is already installed: $($ExistingPython.Source) (version $ExistingVersion). Skipping." -ForegroundColor Green
-        Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Completed
-        return
+        if ($ExistingVersion -match '^3\.10\.') {
+            Write-Host "Python 3.10 is already installed: $($ExistingPython.Source) (version $ExistingVersion). Skipping." -ForegroundColor Green
+            Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Completed
+            return
+        } else {
+            Write-Host "Python found ($ExistingVersion) but not 3.10.x. Proceeding with installation." -ForegroundColor Yellow
+        }
     }
 
     if (-not (Test-Path $PythonExe)) {

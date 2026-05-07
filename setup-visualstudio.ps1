@@ -6,6 +6,7 @@ Write-Progress -Id 2 -ParentId 1 -Activity "Visual Studio Setup" -Status "Checki
 $VSPath = Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.exe'
 if (Test-Path -Path $VSPath) {
     Write-Host 'Visual Studio Community 2022 is already installed (found devenv.exe). Skipping.' -ForegroundColor Green
+    Write-Progress -Id 2 -ParentId 1 -Activity "Visual Studio Setup" -Completed
 } else {
     $WingetCheck = try { (& winget list --id Microsoft.VisualStudio.2022.Community --exact --accept-source-agreements 2>$null) -join "`n" } catch { "" }
     if ($WingetCheck -match [regex]::Escape('Microsoft.VisualStudio.2022.Community')) {

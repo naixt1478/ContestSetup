@@ -229,6 +229,7 @@ function Set-VSCodeAiHiddenSettings
     'extensions.showRecommendationsOnlyOnDemand' = $true
     'extensions.autoCheckUpdates' = $false
     'extensions.autoUpdate' = $false
+    'locale' = 'ko'
     'python.terminal.activateEnvironment' = $false
   }
 

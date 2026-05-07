@@ -120,7 +120,7 @@ try
   foreach ($Module in $Modules)
   {
     $PercentComplete = [math]::Round((($Step - 1) / $Total) * 100)
-    Write-Progress -Activity "Contest Environment Setup" -Status "Running module: $Module" -PercentComplete $PercentComplete -CurrentOperation "Step $Step of $Total"
+    Write-Progress -Id 1 -Activity "Contest Environment Setup" -Status "Running module: $Module" -PercentComplete $PercentComplete -CurrentOperation "Step $Step of $Total"
     Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
     $CacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $ModuleUri = "{0}/{1}?cb={2}" -f $RawBase.TrimEnd('/'), $Module, $CacheBust
@@ -138,7 +138,7 @@ try
 
     $Step++
   }
-  Write-Progress -Activity "Contest Environment Setup" -Completed
+  Write-Progress -Id 1 -Activity "Contest Environment Setup" -Completed
 
   Write-Host ""
   Write-Host "All setup and tests completed successfully." -ForegroundColor Green
