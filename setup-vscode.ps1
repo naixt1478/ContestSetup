@@ -536,6 +536,7 @@ function Restore-NormalVSCodeShortcut
 
 Write-Section 'Setup VS Code'
 
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Status "Checking Standalone Installation..." -PercentComplete 10
 if (-not (Get-VSCodeCommandPath))
 {
   Install-VSCodeStandalone
@@ -545,11 +546,20 @@ else
   Write-Host 'Standalone VS Code is already installed.' -ForegroundColor Green
 }
 
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Status "Initializing Profile..." -PercentComplete 30
 Initialize-ContestVSCodeIsolated
+
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Status "Installing Extensions..." -PercentComplete 50
 Install-VSCodeExtensions
 Remove-BlockedVSCodeExtensions
+
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Status "Configuring Settings & Shortcuts..." -PercentComplete 70
 Set-VSCodeAiHiddenSettings
 Set-ContestVSCodeShortcut
+
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Status "Creating Wrappers..." -PercentComplete 90
 New-ContestVSCodeLauncher
 New-ContestVSCodeCliWrapper
 Warn-IfRequiredVSCodeExtensionsMissing
+
+Write-Progress -Id 2 -ParentId 1 -Activity "VS Code Setup" -Completed

@@ -2,6 +2,10 @@
 
 function Reset-ManagedPython {
     Write-Section "Reset managed Python $PythonVersion"
+# setup-python.ps1
+
+function Reset-ManagedPython {
+    Write-Section "Reset managed Python $PythonVersion"
     if (Test-Path $PythonDir) {
         $BackupRoot = Join-Path $BackupDir ("python-$TimeStamp")
         Backup-And-RemovePathSafe -Path $PythonDir -BackupRoot $BackupRoot
@@ -10,13 +14,16 @@ function Reset-ManagedPython {
 
 function Install-PythonDirect {
     Write-Section "Install Python $PythonVersion"
+    Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Checking Winget installation..." -PercentComplete 10
     if (-not (Test-Path $PythonExe)) {
         if (-not (Test-Path $PythonInstaller)) {
+            Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Downloading Python..." -PercentComplete 30
             Download-VerifiedFile -Url $PythonUrl -OutFile $PythonInstaller -AllowedPublisherKeywords @('Python', 'Python Software Foundation')
         } else {
             Assert-AuthenticodeValid -Path $PythonInstaller -AllowedPublisherKeywords @('Python', 'Python Software Foundation')
         }
         Write-Host "Installing Python $PythonVersion..."
+        Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Status "Installing Python..." -PercentComplete 60
         $Args = "/quiet InstallAllUsers=1 PrependPath=0 Include_test=0 TargetDir=`"$PythonDir`""
         $PythonProcess = Start-Process -FilePath $PythonInstaller -ArgumentList $Args -Wait -PassThru
         if ($PythonProcess.ExitCode -ne 0) { throw "Python installer failed. Exit code: $($PythonProcess.ExitCode)" }
@@ -24,6 +31,7 @@ function Install-PythonDirect {
     if (-not (Test-Path $PythonExe)) { throw "Python install failed or python.exe not found: $PythonExe" }
     Invoke-NativeChecked -FilePath $PythonExe -ArgumentList @('--version') | Out-Null
     Write-Host "Python installed: $PythonExe" -ForegroundColor Green
+    Write-Progress -Id 2 -ParentId 1 -Activity "Python Setup" -Completed
 }
 
 Reset-ManagedPython

@@ -1,6 +1,7 @@
 # setup-restore-task.ps1
 
 Write-Section 'Setup Automated Restoration Task'
+Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Status "Creating cleanup script..." -PercentComplete 20
 
 $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 
@@ -46,6 +47,12 @@ if (`$PathSnapshots) {
     }
 }
 
+Write-Host "Restoring AI Hosts Block (if applied)..."
+`$AiScript = Join-Path `$Root 'ai-hosts-block.ps1'
+if (Test-Path -LiteralPath `$AiScript) {
+    & "powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "`$AiScript" -Restore
+}
+
 Write-Host "Initiating CPTools removal..."
 `$TempScript = Join-Path `$env:TEMP 'remove-cptools.cmd'
 Set-Content -Path `$TempScript -Value "@echo off`r`ntimeout /t 5 /nobreak >nul`r`nrmdir /s /q `"`$Root`"`r`ndel `"%~f0`""
@@ -55,6 +62,7 @@ Write-Host "Cleanup script started. This window will close now."
 
 Write-TextUtf8NoBom -Path $RestoreScriptPath -Content $RestoreScriptContent
 
+Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Status "Registering Scheduled Task..." -PercentComplete 60
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RestoreScriptPath`""
 $Trigger = New-ScheduledTaskTrigger -Once -At '2026-05-09T17:10:00'
 $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
@@ -62,3 +70,4 @@ $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 Register-ScheduledTask -TaskName 'ContestSetupRestoreAndCleanup' -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
 
 Write-Host "Scheduled task 'ContestSetupRestoreAndCleanup' registered to run at 2026-05-09 17:10:00." -ForegroundColor Green
+Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Completed

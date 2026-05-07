@@ -100,6 +100,7 @@ $Modules = @(
   "setup-msys2.ps1",
   "setup-python.ps1",
   "setup-wrappers.ps1",
+  "setup-ai-hosts.ps1",
   "setup-restore-task.ps1"
 )
 
