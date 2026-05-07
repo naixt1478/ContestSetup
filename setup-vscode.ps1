@@ -71,55 +71,15 @@ function Get-ContestVSCodeCliArgs
 
 function Get-VSCodeCommandPath
 {
-  $Candidates = @(
-    (Join-PathIfRoot $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'),
-    (Join-PathIfRoot $env:ProgramFiles 'Microsoft VS Code\bin\code.cmd'),
-    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'Microsoft VS Code\bin\code.cmd')
-  )
-
-  foreach ($Candidate in $Candidates)
-  {
-    if ($Candidate -and (Test-Path -LiteralPath $Candidate)) { return $Candidate }
-  }
-
-  $Cmd = Get-Command code.cmd -CommandType Application -ErrorAction SilentlyContinue
-  if ($Cmd) { return $Cmd.Source }
-
-  $Cmd = Get-Command code -CommandType Application -ErrorAction SilentlyContinue
-  if ($Cmd) { return $Cmd.Source }
-
+  $Standalone = Join-Path (Get-ContestRootPath) 'vscode\bin\code.cmd'
+  if (Test-Path -LiteralPath $Standalone) { return $Standalone }
   return $null
 }
 
 function Get-VSCodeExePath
 {
-  $Candidates = @(
-    (Join-PathIfRoot $env:LOCALAPPDATA 'Programs\Microsoft VS Code\Code.exe'),
-    (Join-PathIfRoot $env:ProgramFiles 'Microsoft VS Code\Code.exe'),
-    (Join-PathIfRoot ${env:ProgramFiles(x86)} 'Microsoft VS Code\Code.exe')
-  )
-
-  foreach ($Candidate in $Candidates)
-  {
-    if ($Candidate -and (Test-Path -LiteralPath $Candidate)) { return $Candidate }
-  }
-
-  $CodeCmd = Get-VSCodeCommandPath
-  if ($CodeCmd)
-  {
-    try
-    {
-      $BinDir = Split-Path -LiteralPath $CodeCmd -Parent
-      $InstallDir = Split-Path -LiteralPath $BinDir -Parent
-      $PossibleExe = Join-Path $InstallDir 'Code.exe'
-      if (Test-Path -LiteralPath $PossibleExe) { return $PossibleExe }
-    }
-    catch {}
-  }
-
-  $Cmd = Get-Command Code.exe -CommandType Application -ErrorAction SilentlyContinue
-  if ($Cmd) { return $Cmd.Source }
-
+  $Standalone = Join-Path (Get-ContestRootPath) 'vscode\Code.exe'
+  if (Test-Path -LiteralPath $Standalone) { return $Standalone }
   return $null
 }
 
@@ -158,24 +118,22 @@ function Reset-VSCodeCompletely
   Write-Host 'Existing VS Code installation/profile was left untouched.' -ForegroundColor Green
 }
 
-function Install-VSCodeDirect
+function Install-VSCodeStandalone
 {
-  Write-Section 'Install VS Code directly'
-  if (Get-VSCodeCommandPath) { Write-Host 'VS Code already installed.'; return }
+  Write-Section 'Install Standalone VS Code'
+  if (Get-VSCodeCommandPath) { Write-Host 'Standalone VS Code already installed.'; return }
 
-  Download-VerifiedFile -Url $VSCodeInstallerUrl -OutFile $VSCodeInstallerPath -AllowedPublisherKeywords @('Microsoft')
-  $Process = Start-Process -FilePath $VSCodeInstallerPath -ArgumentList @('/VERYSILENT', '/NORESTART', '/MERGETASKS=addcontextmenufiles,addcontextmenufolders,addtopath') -Wait -PassThru
-  if ($Process.ExitCode -ne 0) { throw "VS Code direct installer failed. Exit code: $($Process.ExitCode)" }
-
-  $WaitCount = 0
-  while (-not (Get-VSCodeCommandPath) -and $WaitCount -lt 60)
-  {
-    Start-Sleep -Seconds 2
-    $WaitCount++
-  }
-
-  if (-not (Get-VSCodeCommandPath)) { throw 'code.cmd was not found.' }
-  Write-Host 'VS Code direct install completed.' -ForegroundColor Green
+  $VSCodeArchiveUrl = 'https://update.code.visualstudio.com/latest/win32-x64-archive/stable'
+  $VSCodeArchivePath = Join-Path (Get-ContestRootPath) 'downloads\vscode-win32-x64-archive.zip'
+  
+  Download-VerifiedFile -Url $VSCodeArchiveUrl -OutFile $VSCodeArchivePath -AllowedPublisherKeywords @()
+  
+  $ExtractPath = Join-Path (Get-ContestRootPath) 'vscode'
+  Write-Host "Extracting VS Code to $ExtractPath ..."
+  Expand-Archive -Path $VSCodeArchivePath -DestinationPath $ExtractPath -Force
+  
+  if (-not (Get-VSCodeCommandPath)) { throw 'code.cmd was not found after extraction.' }
+  Write-Host 'Standalone VS Code install completed.' -ForegroundColor Green
 }
 
 function Get-RequiredVSCodeExtensions
@@ -565,29 +523,7 @@ function Restore-NormalVSCodeShortcut
   }
   else
   {
-    $CodeExe = Get-VSCodeExePath
-    if (-not $CodeExe) { throw 'Could not find Code.exe for Visual Studio Code.' }
-
-    $Shell = New-Object -ComObject WScript.Shell
-    foreach ($ShortcutPath in Get-VSCodeShortcutTargets)
-    {
-      try
-      {
-        New-Item -ItemType Directory -Force -Path (Split-Path -LiteralPath $ShortcutPath -Parent) | Out-Null
-        $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-        $Shortcut.TargetPath = $CodeExe
-        $Shortcut.Arguments = ''
-        $Shortcut.WorkingDirectory = Split-Path -LiteralPath $CodeExe -Parent
-        $Shortcut.IconLocation = "$CodeExe,0"
-        $Shortcut.Description = 'Visual Studio Code'
-        $Shortcut.Save()
-        Write-Host "Restored shortcut: $ShortcutPath" -ForegroundColor Green
-      }
-      catch
-      {
-        Write-Warning "Failed to restore shortcut: $ShortcutPath - $($_.Exception.Message)"
-      }
-    }
+    Write-Host "No shortcut manifest found at $ManifestPath. Skipping shortcut restoration." -ForegroundColor Yellow
   }
 
   if ($RemoveContestData -and (Test-Path -LiteralPath $ContestRoot))
@@ -602,14 +538,11 @@ Write-Section 'Setup VS Code'
 
 if (-not (Get-VSCodeCommandPath))
 {
-  if (-not (Install-ByWinget -Id 'Microsoft.VisualStudioCode' -NameForLog 'Visual Studio Code'))
-  {
-    Install-VSCodeDirect
-  }
+  Install-VSCodeStandalone
 }
 else
 {
-  Write-Host 'VS Code is already installed. Existing VS Code profile will not be modified.' -ForegroundColor Green
+  Write-Host 'Standalone VS Code is already installed.' -ForegroundColor Green
 }
 
 Initialize-ContestVSCodeIsolated

@@ -61,11 +61,15 @@ function Ensure-MsysCatInstalled {
     if (-not (Test-Path $MsysCat)) { throw "cat.exe not found." }
 }
 
-Reset-MSYS2Completely
-if (-not (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2')) { Install-MSYS2Direct }
+if (Test-Path $MsysBash) {
+    Write-Host "MSYS2 is already installed at $MsysBash. Skipping installation." -ForegroundColor Green
+} else {
+    Reset-MSYS2Completely
+    if (-not (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2')) { Install-MSYS2Direct }
 
-$WaitCount = 0; while (-not (Test-Path $MsysBash) -and $WaitCount -lt 60) { Start-Sleep -Seconds 2; $WaitCount++ }
-if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
+    $WaitCount = 0; while (-not (Test-Path $MsysBash) -and $WaitCount -lt 60) { Start-Sleep -Seconds 2; $WaitCount++ }
+    if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
+}
 
 Write-Section 'Install MSYS2 packages'
 Invoke-MsysBashChecked 'echo MSYS2 initialized'
