@@ -87,24 +87,25 @@ else
 }
 
 Write-Section 'Install MSYS2 packages'
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Status "Initializing MSYS2" -PercentComplete 10
+$PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] MSYS2 Setup"
+Write-Progress -Activity $PA -Status "Initializing MSYS2" -PercentComplete 10
 Invoke-MsysBashChecked 'echo MSYS2 initialized'
 Install-Msys2CaCertificate
 
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Status "Updating base packages (1/2)" -PercentComplete 30
+Write-Progress -Activity $PA -Status "Updating base packages (1/2)" -PercentComplete 30
 Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
 
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Status "Updating base packages (2/2)" -PercentComplete 50
+Write-Progress -Activity $PA -Status "Updating base packages (2/2)" -PercentComplete 50
 Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
 
 $MsysPackages = @('mingw-w64-ucrt-x86_64-gcc', 'mingw-w64-ucrt-x86_64-gdb')
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Status "Installing GCC/GDB" -PercentComplete 70
+Write-Progress -Activity $PA -Status "Installing GCC/GDB" -PercentComplete 70
 Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
 
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Status "Installing coreutils" -PercentComplete 90
+Write-Progress -Activity $PA -Status "Installing coreutils" -PercentComplete 90
 Ensure-MsysCatInstalled
 
-Write-Progress -Id 2 -ParentId 1 -Activity "MSYS2 Setup" -Completed
+Write-Progress -Activity $PA -Completed
 
 foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), $MsysCat))
 {

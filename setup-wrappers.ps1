@@ -87,16 +87,17 @@ function Run-SmokeTests {
     Assert-Output -Name 'Python3' -Actual (((Invoke-NativeChecked -FilePath (Join-Path $ToolBin 'python3.cmd') -ArgumentList @((Join-Path $TestDir 'python3_test.py')) -Quiet).Output) -join "`n") -Expected 'PYTHON3 OK 6'
 }
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Finalizing Setup" -Status "Creating Wrappers..." -PercentComplete 10
+$PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] Finalizing Setup"
+Write-Progress -Activity $PA -Status "Creating Wrappers..." -PercentComplete 10
 Create-CommandWrappers
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Finalizing Setup" -Status "Configuring PATH..." -PercentComplete 40
+Write-Progress -Activity $PA -Status "Configuring PATH..." -PercentComplete 40
 Configure-Path
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Finalizing Setup" -Status "Generating Version Report..." -PercentComplete 70
+Write-Progress -Activity $PA -Status "Generating Version Report..." -PercentComplete 70
 Write-VersionReport
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Finalizing Setup" -Status "Running Smoke Tests..." -PercentComplete 90
+Write-Progress -Activity $PA -Status "Running Smoke Tests..." -PercentComplete 90
 Run-SmokeTests
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Finalizing Setup" -Completed
+Write-Progress -Activity $PA -Completed

@@ -1,7 +1,8 @@
 # setup-restore-task.ps1
 
 Write-Section 'Setup Automated Restoration Task'
-Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Status "Creating cleanup script..." -PercentComplete 20
+$PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] Automated Restoration Task"
+Write-Progress -Activity $PA -Status "Creating cleanup script..." -PercentComplete 20
 
 $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 
@@ -62,7 +63,7 @@ Write-Host "Cleanup script started. This window will close now."
 
 Write-TextUtf8NoBom -Path $RestoreScriptPath -Content $RestoreScriptContent
 
-Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Status "Registering Scheduled Task..." -PercentComplete 60
+Write-Progress -Activity $PA -Status "Registering Scheduled Task..." -PercentComplete 60
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RestoreScriptPath`""
 $Trigger = New-ScheduledTaskTrigger -Once -At '2026-05-09T17:10:00'
 $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
@@ -70,4 +71,4 @@ $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 Register-ScheduledTask -TaskName 'ContestSetupRestoreAndCleanup' -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
 
 Write-Host "Scheduled task 'ContestSetupRestoreAndCleanup' registered to run at 2026-05-09 17:10:00." -ForegroundColor Green
-Write-Progress -Id 2 -ParentId 1 -Activity "Automated Restoration Task" -Completed
+Write-Progress -Activity $PA -Completed
