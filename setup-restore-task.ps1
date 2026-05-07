@@ -6,59 +6,68 @@ Write-Progress -Activity $PA -Status "Creating cleanup script..." -PercentComple
 
 $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 
-# We use a single-quoted here-string for the parts that don't need expansion from the current scope
-# to avoid escaping nightmare, but we need $Root to be expanded.
-# So we'll use a template approach.
+# Build the Python uninstaller path that will be embedded into the generated script.
+# Python was installed via the official installer to $PythonDir, so we can uninstall it
+# silently using the same installer or via the cached uninstall info.
+$PythonDirEscaped = $PythonDir -replace "'", "''"
+$PythonVersionEscaped = $PythonVersion -replace "'", "''"
 
-$RestoreScriptContent = @"
+$RestoreScriptContent = @'
 # restore-and-cleanup.ps1
-# Automatically generated script to restore environment and delete ContestSetup folder.
-`$ErrorActionPreference = 'Continue'
+# Automatically generated script to restore the contest environment.
+$ErrorActionPreference = 'Continue'
+
+'@ + @"
 
 `$Root = '$Root'
-`$ContestVSCodeRoot = Join-Path `$Root 'vscode-contest'
-`$ManifestPath = Join-Path `$ContestVSCodeRoot 'shortcut-manifest.json'
-`$ProgressActivity = 'Contest Environment Restore & Cleanup'
+`$PythonDir = '$PythonDirEscaped'
+`$PythonVersion = '$PythonVersionEscaped'
+
+"@ + @'
+
+$ContestVSCodeRoot = Join-Path $Root 'vscode-contest'
+$ManifestPath = Join-Path $ContestVSCodeRoot 'shortcut-manifest.json'
+$ProgressActivity = 'Contest Environment Restore & Cleanup'
 
 Write-Host '============================================================' -ForegroundColor Cyan
-Write-Host 'Contest Environment Restore & Cleanup' -ForegroundColor Cyan
+Write-Host '  Contest Environment Restore & Cleanup' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
 
-# 1. Restore VS Code Shortcuts
-Write-Progress -Activity `$ProgressActivity -Status '[1/5] Restoring VS Code Shortcuts...' -PercentComplete 10
-Write-Host '[1/5] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
-if (Test-Path -LiteralPath `$ManifestPath) {
-    `$Manifest = Get-Content -LiteralPath `$ManifestPath -Raw | ConvertFrom-Json
-    foreach (`$Item in `$Manifest) {
+# ── Step 1/6: Restore VS Code Shortcuts ──
+Write-Progress -Activity $ProgressActivity -Status '[1/6] Restoring VS Code Shortcuts...' -PercentComplete 5
+Write-Host '[1/6] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
+if (Test-Path -LiteralPath $ManifestPath) {
+    $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    foreach ($Item in $Manifest) {
         try {
-            if (`$Item.Existed -and `$Item.BackupPath -and (Test-Path -LiteralPath `$Item.BackupPath)) {
-                Copy-Item -LiteralPath `$Item.BackupPath -Destination `$Item.ShortcutPath -Force
-                Write-Host "  Restored: `$(`$Item.ShortcutPath)" -ForegroundColor Green
+            if ($Item.Existed -and $Item.BackupPath -and (Test-Path -LiteralPath $Item.BackupPath)) {
+                Copy-Item -LiteralPath $Item.BackupPath -Destination $Item.ShortcutPath -Force
+                Write-Host "  Restored: $($Item.ShortcutPath)" -ForegroundColor Green
             }
-            elseif (Test-Path -LiteralPath `$Item.ShortcutPath) {
-                Remove-Item -LiteralPath `$Item.ShortcutPath -Force
-                Write-Host "  Removed: `$(`$Item.ShortcutPath)" -ForegroundColor Green
+            elseif (Test-Path -LiteralPath $Item.ShortcutPath) {
+                Remove-Item -LiteralPath $Item.ShortcutPath -Force
+                Write-Host "  Removed: $($Item.ShortcutPath)" -ForegroundColor Green
             }
-        } catch { Write-Warning "  Failed: `$(`$Item.ShortcutPath)" }
+        } catch { Write-Warning "  Failed: $($Item.ShortcutPath)" }
     }
 } else {
     Write-Host '  No shortcut manifest found. Skipping.' -ForegroundColor Gray
 }
 
-# 2. Restore PATH Environment Variable
-Write-Progress -Activity `$ProgressActivity -Status '[2/5] Restoring PATH...' -PercentComplete 30
-Write-Host '[2/5] Restoring PATH Environment Variable...' -ForegroundColor Yellow
-`$BackupDir = Join-Path `$Root 'backup'
-`$PathSnapshots = Get-ChildItem -Path `$BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
-if (`$PathSnapshots) {
-    `$LatestSnapshot = `$PathSnapshots[0].FullName
-    `$SnapshotFile = Join-Path `$LatestSnapshot 'path-environment-before-cleanup.txt'
-    if (Test-Path -LiteralPath `$SnapshotFile) {
-        `$Lines = Get-Content -LiteralPath `$SnapshotFile
-        if (`$Lines.Count -ge 2 -and `$Lines[0] -eq 'User PATH:') {
-            `$UserPath = `$Lines[1]
-            [Environment]::SetEnvironmentVariable('Path', `$UserPath, 'User')
+# ── Step 2/6: Restore PATH Environment Variable ──
+Write-Progress -Activity $ProgressActivity -Status '[2/6] Restoring PATH...' -PercentComplete 20
+Write-Host '[2/6] Restoring PATH Environment Variable...' -ForegroundColor Yellow
+$BackupDir = Join-Path $Root 'backup'
+$PathSnapshots = Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
+if ($PathSnapshots) {
+    $LatestSnapshot = $PathSnapshots[0].FullName
+    $SnapshotFile = Join-Path $LatestSnapshot 'path-environment-before-cleanup.txt'
+    if (Test-Path -LiteralPath $SnapshotFile) {
+        $Lines = Get-Content -LiteralPath $SnapshotFile
+        if ($Lines.Count -ge 2 -and $Lines[0] -eq 'User PATH:') {
+            $UserPath = $Lines[1]
+            [Environment]::SetEnvironmentVariable('Path', $UserPath, 'User')
             Write-Host '  User PATH restored.' -ForegroundColor Green
         }
     }
@@ -66,53 +75,149 @@ if (`$PathSnapshots) {
     Write-Host '  No PATH backup found. Skipping.' -ForegroundColor Gray
 }
 
-# 3. Restore AI Hosts Block
-Write-Progress -Activity `$ProgressActivity -Status '[3/5] Restoring AI Hosts...' -PercentComplete 50
-Write-Host '[3/5] Restoring AI Hosts Block...' -ForegroundColor Yellow
-`$AiScript = Join-Path `$Root 'ai-hosts-block.ps1'
-if (Test-Path -LiteralPath `$AiScript) {
+# ── Step 3/6: Restore AI Hosts Block ──
+Write-Progress -Activity $ProgressActivity -Status '[3/6] Restoring AI Hosts...' -PercentComplete 35
+Write-Host '[3/6] Restoring AI Hosts Block...' -ForegroundColor Yellow
+$AiScript = Join-Path $Root 'ai-hosts-block.ps1'
+if (Test-Path -LiteralPath $AiScript) {
     try {
-        # Using Start-Process to avoid current session issues and for better error isolation
-        `$Proc = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`$AiScript", "-Restore", "-Root", "`$Root") -Wait -PassThru -WindowStyle Hidden
-        if (`$Proc.ExitCode -eq 0) {
+        $Proc = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$AiScript`" -Restore -Root `"$Root`"" `
+            -Wait -PassThru -WindowStyle Hidden
+        if ($Proc.ExitCode -eq 0) {
             Write-Host '  AI hosts block removed.' -ForegroundColor Green
         } else {
-            Write-Warning "  AI hosts block removal returned exit code `$(`$Proc.ExitCode)."
+            Write-Warning "  AI hosts block removal returned exit code $($Proc.ExitCode)."
         }
     } catch {
-        Write-Warning "  AI hosts restore failed: `$(`$_.Exception.Message)"
+        Write-Warning "  AI hosts restore failed: $($_.Exception.Message)"
     }
 } else {
     Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray
 }
 
-# 4. Remove CPTools folder
-Write-Progress -Activity `$ProgressActivity -Status '[4/5] Removing CPTools folder...' -PercentComplete 70
-Write-Host '[4/5] Removing CPTools folder...' -ForegroundColor Yellow
-`$TempBat = Join-Path `$env:TEMP 'remove-cptools.cmd'
-# Use double-double quotes for the batch file to handle spaces in $Root
-`$BatLines = @(
-    '@echo off',
-    'timeout /t 5 /nobreak >nul',
-    'rmdir /s /q "' + `$Root + '"',
-    'del "%~f0"'
+# ── Step 4/6: Uninstall Python ──
+Write-Progress -Activity $ProgressActivity -Status '[4/6] Uninstalling Python...' -PercentComplete 50
+Write-Host '[4/6] Uninstalling Python...' -ForegroundColor Yellow
+
+# Method 1: Try the cached MSI/EXE uninstaller via Windows Registry
+$PythonUninstalled = $false
+$UninstallKeys = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
-[IO.File]::WriteAllLines(`$TempBat, `$BatLines)
+foreach ($KeyPath in $UninstallKeys) {
+    $Entries = Get-ItemProperty -Path $KeyPath -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "Python $PythonVersion*" -or ($_.DisplayName -like 'Python 3.10*' -and $_.InstallLocation -like "$PythonDir*") }
+    foreach ($Entry in $Entries) {
+        $UninstallString = $Entry.UninstallString
+        if ($UninstallString) {
+            Write-Host "  Found uninstaller: $($Entry.DisplayName)" -ForegroundColor Cyan
+            try {
+                if ($UninstallString -match 'MsiExec') {
+                    $ProductCode = ($UninstallString -replace '.*(\{[0-9A-Fa-f-]+\}).*', '$1')
+                    Start-Process -FilePath 'msiexec.exe' -ArgumentList "/x $ProductCode /quiet /norestart" -Wait -PassThru | Out-Null
+                } else {
+                    Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$UninstallString`" /quiet" -Wait -PassThru | Out-Null
+                }
+                $PythonUninstalled = $true
+            } catch {
+                Write-Warning "  Registry uninstall failed: $($_.Exception.Message)"
+            }
+        }
+    }
+}
 
-# Correct syntax for Start-Process with ArgumentList as an array to avoid quote hell
-Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", `$TempBat) -WindowStyle Hidden
-Write-Host '  Cleanup scheduled. CPTools will be removed in 5 seconds.' -ForegroundColor Green
+# Method 2: Use the installer EXE in downloads folder with /uninstall
+if (-not $PythonUninstalled) {
+    $InstallerPath = Join-Path $Root "downloads\python-$PythonVersion-amd64.exe"
+    if (Test-Path -LiteralPath $InstallerPath) {
+        Write-Host "  Using cached installer to uninstall: $InstallerPath" -ForegroundColor Cyan
+        try {
+            $Proc = Start-Process -FilePath $InstallerPath -ArgumentList '/uninstall /quiet' -Wait -PassThru
+            if ($Proc.ExitCode -eq 0) { $PythonUninstalled = $true }
+        } catch {
+            Write-Warning "  Installer uninstall failed: $($_.Exception.Message)"
+        }
+    }
+}
 
-# 5. Shutdown computer
-Write-Progress -Activity `$ProgressActivity -Status '[5/5] Shutting down computer...' -PercentComplete 90
-Write-Host '[5/5] Shutting down computer in 30 seconds...' -ForegroundColor Yellow
+# Method 3: Brute force remove the directory
+if (-not $PythonUninstalled -and (Test-Path -LiteralPath $PythonDir)) {
+    Write-Host "  Removing Python directory directly: $PythonDir" -ForegroundColor Cyan
+    try {
+        Remove-Item -LiteralPath $PythonDir -Recurse -Force -ErrorAction Stop
+        $PythonUninstalled = $true
+    } catch {
+        Write-Warning "  Could not remove Python directory: $($_.Exception.Message)"
+    }
+}
+
+if ($PythonUninstalled) {
+    Write-Host '  Python uninstalled.' -ForegroundColor Green
+} else {
+    Write-Host '  Python was not found or already uninstalled.' -ForegroundColor Gray
+}
+
+# ── Step 5/6: Kill processes & Remove CPTools folder ──
+Write-Progress -Activity $ProgressActivity -Status '[5/6] Removing CPTools folder...' -PercentComplete 70
+Write-Host '[5/6] Removing CPTools folder...' -ForegroundColor Yellow
+
+# Kill any VS Code or related processes that might lock files
+foreach ($ProcName in @('Code', 'Code - Insiders', 'node', 'python', 'python3', 'g++', 'gcc', 'gdb')) {
+    Get-Process -Name $ProcName -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -like "$Root*" } catch { $false }
+    } | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 2
+
+# First, try a direct PowerShell removal (works if no file locks)
+$DirectRemoveOk = $false
+if (Test-Path -LiteralPath $Root) {
+    try {
+        # Change working directory away from CPTools so we don't lock it
+        Set-Location -LiteralPath $env:TEMP
+
+        Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction Stop
+        $DirectRemoveOk = $true
+        Write-Host "  CPTools folder removed: $Root" -ForegroundColor Green
+    } catch {
+        Write-Host "  Direct removal failed (file lock likely). Using deferred batch cleanup..." -ForegroundColor Yellow
+    }
+}
+
+# Fallback: spawn a detached cmd.exe batch file that retries rmdir
+if (-not $DirectRemoveOk -and (Test-Path -LiteralPath $Root)) {
+    $TempBat = Join-Path $env:TEMP 'remove-cptools.cmd'
+    $BatContent = @"
+@echo off
+cd /d "%TEMP%"
+timeout /t 5 /nobreak >nul
+rmdir /s /q "$Root"
+if exist "$Root" (
+    timeout /t 5 /nobreak >nul
+    rmdir /s /q "$Root"
+)
+del "%~f0"
+"@
+    [IO.File]::WriteAllText($TempBat, $BatContent, [System.Text.Encoding]::ASCII)
+    Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$TempBat`"" -WindowStyle Hidden
+    Write-Host '  Deferred cleanup scheduled. CPTools will be removed shortly.' -ForegroundColor Green
+}
+
+# ── Step 6/6: Shutdown computer ──
+Write-Progress -Activity $ProgressActivity -Status '[6/6] Shutting down computer...' -PercentComplete 90
 Write-Host ''
-Write-Host 'All contest environment cleanup completed!' -ForegroundColor Green
-Write-Host 'Computer will shut down in 30 seconds. Close this window to cancel.' -ForegroundColor Red
-Write-Progress -Activity `$ProgressActivity -Completed
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Host '  All contest environment cleanup completed!' -ForegroundColor Green
+Write-Host '  Computer will shut down in 30 seconds.' -ForegroundColor Red
+Write-Host '  Close this window to CANCEL shutdown.' -ForegroundColor Red
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Progress -Activity $ProgressActivity -Completed
 Start-Sleep -Seconds 30
 Stop-Computer -Force
-"@
+'@
 
 Write-TextUtf8NoBom -Path $RestoreScriptPath -Content $RestoreScriptContent
 
