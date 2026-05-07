@@ -386,17 +386,17 @@ function Set-ContestVSCodeShortcut
   {
     try
     {
-      $ShortcutDir = Split-Path -LiteralPath $ShortcutPath -Parent
+      $ShortcutDir = Split-Path -Path $ShortcutPath -Parent
       New-Item -ItemType Directory -Force -Path $ShortcutDir | Out-Null
 
-      $Existed = Test-Path -LiteralPath $ShortcutPath
+      $Existed = Test-Path -Path $ShortcutPath
       $BackupPath = $null
 
       if ($Existed)
       {
-        $BackupName = (Convert-PathToSafeFileName -Path $ShortcutPath) + '.bak.lnk'
+        $BackupName = (Convert-PathToSafeFileName $ShortcutPath) + '.bak.lnk'
         $BackupPath = Join-Path $ShortcutBackupRoot $BackupName
-        Copy-Item -LiteralPath $ShortcutPath -Destination $BackupPath -Force
+        Copy-Item -Path $ShortcutPath -Destination $BackupPath -Force
       }
 
       $Shortcut = $Shell.CreateShortcut($ShortcutPath)
@@ -457,7 +457,7 @@ param(
 & `$CodeExe --user-data-dir `$UserDataDir --extensions-dir `$ExtensionsDir `$Path
 "@
 
-  Write-TextUtf8NoBom -Path $LauncherPath -Text $Launcher
+  Write-TextUtf8NoBom -Path $LauncherPath -Content $Launcher
   Write-Host "Contest VS Code launcher created: $LauncherPath" -ForegroundColor Green
 }
 
@@ -482,7 +482,7 @@ function New-ContestVSCodeCliWrapper
 "$CodeCmd" --user-data-dir "$UserDataDir" --extensions-dir "$ExtensionsDir" %*
 "@
 
-  Write-TextUtf8NoBom -Path $WrapperPath -Text $Wrapper
+  Write-TextUtf8NoBom -Path $WrapperPath -Content $Wrapper
   Write-Host "Contest code.cmd wrapper created: $WrapperPath" -ForegroundColor Green
   Write-Host 'Make sure this directory is before the normal VS Code bin directory in PATH if you want `code` to open the contest profile.' -ForegroundColor Yellow
 }
@@ -496,22 +496,22 @@ function Restore-NormalVSCodeShortcut
   $ContestRoot = Get-ContestVSCodeRoot
   $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
 
-  if (Test-Path -LiteralPath $ManifestPath)
+  if (Test-Path -Path $ManifestPath)
   {
-    $Manifest = @(Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json)
+    $Manifest = @(Get-Content -Path $ManifestPath -Raw | ConvertFrom-Json)
     foreach ($Item in $Manifest)
     {
       try
       {
-        if ($Item.Existed -and $Item.BackupPath -and (Test-Path -LiteralPath $Item.BackupPath))
+        if ($Item.Existed -and $Item.BackupPath -and (Test-Path -Path $Item.BackupPath))
         {
-          New-Item -ItemType Directory -Force -Path (Split-Path -LiteralPath $Item.ShortcutPath -Parent) | Out-Null
-          Copy-Item -LiteralPath $Item.BackupPath -Destination $Item.ShortcutPath -Force
+          New-Item -ItemType Directory -Force -Path (Split-Path -Path $Item.ShortcutPath -Parent) | Out-Null
+          Copy-Item -Path $Item.BackupPath -Destination $Item.ShortcutPath -Force
           Write-Host "Restored shortcut: $($Item.ShortcutPath)" -ForegroundColor Green
         }
-        elseif (Test-Path -LiteralPath $Item.ShortcutPath)
+        elseif (Test-Path -Path $Item.ShortcutPath)
         {
-          Remove-Item -LiteralPath $Item.ShortcutPath -Force
+          Remove-Item -Path $Item.ShortcutPath -Force
           Write-Host "Removed contest shortcut: $($Item.ShortcutPath)" -ForegroundColor Green
         }
       }
