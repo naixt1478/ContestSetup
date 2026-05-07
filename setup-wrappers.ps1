@@ -88,16 +88,16 @@ function Run-SmokeTests {
 }
 
 $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] Finalizing Setup"
-Write-Progress -Activity $PA -Status "Creating Wrappers..." -PercentComplete 10
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Creating Wrappers..." -PercentComplete 10
 Create-CommandWrappers
 
-Write-Progress -Activity $PA -Status "Configuring PATH..." -PercentComplete 40
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Configuring PATH..." -PercentComplete 40
 Configure-Path
 
-Write-Progress -Activity $PA -Status "Generating Version Report..." -PercentComplete 70
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Generating Version Report..." -PercentComplete 70
 Write-VersionReport
 
-Write-Progress -Activity $PA -Status "Running Smoke Tests..." -PercentComplete 90
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Running Smoke Tests..." -PercentComplete 90
 Run-SmokeTests
 
-Write-Progress -Activity $PA -Completed
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed

@@ -29,7 +29,6 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
 
 $BlockDir = Join-Path $Root 'ai-block'
 $LogDir = Join-Path $Root 'logs'
@@ -238,7 +237,13 @@ function Invoke-DownloadFile {
     )
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
     New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($OutFile)) | Out-Null
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+    $OldProgressPref = $ProgressPreference
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+    } finally {
+        $ProgressPreference = $OldProgressPref
+    }
 }
 
 function Assert-FileSha256 {

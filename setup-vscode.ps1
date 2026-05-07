@@ -613,7 +613,7 @@ function Disable-VSCodeMarketplace
 Write-Section 'Setup VS Code'
 
 $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] VS Code Setup"
-Write-Progress -Activity $PA -Status "Checking Standalone Installation..." -PercentComplete 10
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Checking Standalone Installation..." -PercentComplete 10
 if (-not (Get-VSCodeCommandPath))
 {
   Install-VSCodeStandalone
@@ -623,24 +623,24 @@ else
   Write-Host 'Standalone VS Code is already installed.' -ForegroundColor Green
 }
 
-Write-Progress -Activity $PA -Status "Initializing Profile..." -PercentComplete 25
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Initializing Profile..." -PercentComplete 25
 Initialize-ContestVSCodeIsolated
 
-Write-Progress -Activity $PA -Status "Installing Extensions..." -PercentComplete 40
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing Extensions..." -PercentComplete 40
 Install-VSCodeExtensions
 Remove-BlockedVSCodeExtensions
 
-Write-Progress -Activity $PA -Status "Configuring Settings & Shortcuts..." -PercentComplete 60
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Configuring Settings & Shortcuts..." -PercentComplete 60
 Set-VSCodeAiHiddenSettings
 Set-ContestVSCodeShortcut
 
-Write-Progress -Activity $PA -Status "Creating Wrappers..." -PercentComplete 80
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Creating Wrappers..." -PercentComplete 75
 New-ContestVSCodeLauncher
 New-ContestVSCodeCliWrapper
 
-Write-Progress -Activity $PA -Status "Locking Extension Marketplace..." -PercentComplete 90
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Locking Extension Marketplace..." -PercentComplete 90
 Disable-VSCodeMarketplace
 
 Warn-IfRequiredVSCodeExtensionsMissing
 
-Write-Progress -Activity $PA -Completed
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed

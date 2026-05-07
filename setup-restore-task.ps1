@@ -2,7 +2,7 @@
 
 Write-Section 'Setup Automated Restoration Task'
 $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] Automated Restoration Task"
-Write-Progress -Activity $PA -Status "Creating cleanup script..." -PercentComplete 20
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Creating cleanup script..." -PercentComplete 20
 
 $RestoreScriptPath = Join-Path $Root 'restore-and-cleanup.ps1'
 
@@ -221,7 +221,7 @@ Stop-Computer -Force
 
 Write-TextUtf8NoBom -Path $RestoreScriptPath -Content $RestoreScriptContent
 
-Write-Progress -Activity $PA -Status "Registering Scheduled Task..." -PercentComplete 60
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Registering Scheduled Task..." -PercentComplete 60
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`""
 $Trigger = New-ScheduledTaskTrigger -Once -At '2026-05-09T17:10:00'
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -233,4 +233,4 @@ Register-ScheduledTask -TaskName 'ContestSetupRestoreAndCleanup' -Action $Action
 Write-Host "Scheduled task 'ContestSetupRestoreAndCleanup' registered to run at 2026-05-09 17:10:00." -ForegroundColor Green
 Write-Host "The restore window will be visible when the task runs." -ForegroundColor Yellow
 Write-Host "Computer will automatically shut down after cleanup." -ForegroundColor Yellow
-Write-Progress -Activity $PA -Completed
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed

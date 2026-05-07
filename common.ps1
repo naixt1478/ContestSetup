@@ -3,7 +3,6 @@
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
 try { $global:PSNativeCommandUseErrorActionPreference = $false } catch {}
 
 try
@@ -256,7 +255,13 @@ function Invoke-DownloadFile
       Write-Host "Downloading ($Attempt/$MaxAttempts): $Url"
       $Params = @{ Uri = $Url; OutFile = $OutFile; ErrorAction = 'Stop' }
       if ($PSVersionTable.PSVersion.Major -le 5) { $Params['UseBasicParsing'] = $true }
-      Invoke-WebRequest @Params
+      $OldProgressPref = $ProgressPreference
+      try {
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest @Params
+      } finally {
+          $ProgressPreference = $OldProgressPref
+      }
       if (-not (Test-Path $OutFile)) { throw "Download did not create file: $OutFile" }
       return
     }
@@ -367,7 +372,18 @@ function Remove-ConflictingPathEntries
 
   $ShouldRemove = {
     param($Original, $Normalized)
-    return ($Normalized -eq $ToolBinNorm -or $Normalized -eq $PathBinNorm -or $Normalized -eq $PythonDirNorm -or $Normalized.StartsWith("$PythonDirNorm\") -or $Normalized -eq $MsysRootNorm -or $Normalized.StartsWith("$MsysRootNorm\") -or $Normalized -eq $RootNorm -or $VSCodeBinNorms -contains $Normalized)
+    return (
+        $Normalized -eq $ToolBinNorm -or 
+        $Normalized -eq $PathBinNorm -or 
+        $Normalized -eq $PythonDirNorm -or 
+        $Normalized.StartsWith("$PythonDirNorm\") -or 
+        $Normalized -eq $MsysRootNorm -or 
+        $Normalized.StartsWith("$MsysRootNorm\") -or 
+        $Normalized -eq $RootNorm -or 
+        $VSCodeBinNorms -contains $Normalized -or
+        $Normalized -match 'python' -or
+        $Normalized -match 'windowsapps'
+    )
   }.GetNewClosure()
 
   Remove-PathEntriesMatching -Scope 'User' -ShouldRemove $ShouldRemove

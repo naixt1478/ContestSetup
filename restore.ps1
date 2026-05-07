@@ -76,7 +76,13 @@ $Step = 1
 try {
     foreach ($Module in $Modules) {
         Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
-        Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
+        $OldProgressPref = $ProgressPreference
+        try {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
+        } finally {
+            $ProgressPreference = $OldProgressPref
+        }
         $Step++
     }
 

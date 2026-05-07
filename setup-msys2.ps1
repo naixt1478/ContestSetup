@@ -88,24 +88,24 @@ else
 
 Write-Section 'Install MSYS2 packages'
 $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] MSYS2 Setup"
-Write-Progress -Activity $PA -Status "Initializing MSYS2" -PercentComplete 10
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Initializing MSYS2" -PercentComplete 10
 Invoke-MsysBashChecked 'echo MSYS2 initialized'
 Install-Msys2CaCertificate
 
-Write-Progress -Activity $PA -Status "Updating base packages (1/2)" -PercentComplete 30
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Updating base packages (1/2)" -PercentComplete 30
 Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
 
-Write-Progress -Activity $PA -Status "Updating base packages (2/2)" -PercentComplete 50
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Updating base packages (2/2)" -PercentComplete 50
 Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
 
 $MsysPackages = @('mingw-w64-ucrt-x86_64-gcc', 'mingw-w64-ucrt-x86_64-gdb')
-Write-Progress -Activity $PA -Status "Installing GCC/GDB" -PercentComplete 70
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing GCC/GDB" -PercentComplete 70
 Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
 
-Write-Progress -Activity $PA -Status "Installing coreutils" -PercentComplete 90
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing coreutils" -PercentComplete 90
 Ensure-MsysCatInstalled
 
-Write-Progress -Activity $PA -Completed
+Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed
 
 foreach ($RequiredPath in @((Join-Path $UcrtBin 'g++.exe'), (Join-Path $UcrtBin 'gcc.exe'), (Join-Path $UcrtBin 'gdb.exe'), $MsysCat))
 {
