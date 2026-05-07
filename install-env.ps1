@@ -54,7 +54,6 @@ if (-not (Test-IsAdmin))
   }
 
   $StartArgs = @(
-    "-NoExit",
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
     "-File", $SelfPath
@@ -165,9 +164,7 @@ finally
     try { Stop-SetupLogging } catch {}
   }
 
-  if (-not $NoPause)
-  {
-    Write-Host "Press Enter to close this window..." -ForegroundColor Yellow
-    try { Read-Host | Out-Null } catch {}
-  }
+  Write-Host ""
+  Write-Host "This window will close automatically in 5 seconds..." -ForegroundColor Yellow
+  Start-Sleep -Seconds 5
 }

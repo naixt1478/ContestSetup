@@ -14,6 +14,7 @@ $RestoreScriptContent = @"
 `$Root = '$Root'
 `$ContestVSCodeRoot = Join-Path `$Root 'vscode-contest'
 `$ManifestPath = Join-Path `$ContestVSCodeRoot 'shortcut-manifest.json'
+`$ProgressActivity = 'Contest Environment Restore & Cleanup'
 
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host 'Contest Environment Restore & Cleanup' -ForegroundColor Cyan
@@ -21,6 +22,7 @@ Write-Host '============================================================' -Foreg
 Write-Host ''
 
 # 1. Restore VS Code Shortcuts
+Write-Progress -Activity `$ProgressActivity -Status '[1/5] Restoring VS Code Shortcuts...' -PercentComplete 10
 Write-Host '[1/5] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
 if (Test-Path -LiteralPath `$ManifestPath) {
     `$Manifest = Get-Content -LiteralPath `$ManifestPath -Raw | ConvertFrom-Json
@@ -41,6 +43,7 @@ if (Test-Path -LiteralPath `$ManifestPath) {
 }
 
 # 2. Restore PATH Environment Variable
+Write-Progress -Activity `$ProgressActivity -Status '[2/5] Restoring PATH...' -PercentComplete 30
 Write-Host '[2/5] Restoring PATH Environment Variable...' -ForegroundColor Yellow
 `$BackupDir = Join-Path `$Root 'backup'
 `$PathSnapshots = Get-ChildItem -Path `$BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
@@ -60,6 +63,7 @@ if (`$PathSnapshots) {
 }
 
 # 3. Restore AI Hosts Block
+Write-Progress -Activity `$ProgressActivity -Status '[3/5] Restoring AI Hosts...' -PercentComplete 50
 Write-Host '[3/5] Restoring AI Hosts Block...' -ForegroundColor Yellow
 `$AiScript = Join-Path `$Root 'ai-hosts-block.ps1'
 if (Test-Path -LiteralPath `$AiScript) {
@@ -74,24 +78,26 @@ if (Test-Path -LiteralPath `$AiScript) {
 }
 
 # 4. Remove CPTools folder
+Write-Progress -Activity `$ProgressActivity -Status '[4/5] Removing CPTools folder...' -PercentComplete 70
 Write-Host '[4/5] Removing CPTools folder...' -ForegroundColor Yellow
 `$TempBat = Join-Path `$env:TEMP 'remove-cptools.cmd'
-`$BatContent = @"
-
-@echo off
-timeout /t 5 /nobreak >nul
-rmdir /s /q "`$Root"
-del "%~f0"
-`"@
-[IO.File]::WriteAllText(`$TempBat, `$BatContent)
-Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"`$TempBat`"" -WindowStyle Hidden
-Write-Host "  Cleanup scheduled. CPTools will be removed in 5 seconds." -ForegroundColor Green
+`$BatLines = @(
+    '@echo off',
+    'timeout /t 5 /nobreak >nul',
+    ('rmdir /s /q "' + `$Root + '"'),
+    'del "%~f0"'
+)
+[IO.File]::WriteAllLines(`$TempBat, `$BatLines)
+Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c "' + `$TempBat + '"') -WindowStyle Hidden
+Write-Host '  Cleanup scheduled. CPTools will be removed in 5 seconds.' -ForegroundColor Green
 
 # 5. Shutdown computer
+Write-Progress -Activity `$ProgressActivity -Status '[5/5] Shutting down computer...' -PercentComplete 90
 Write-Host '[5/5] Shutting down computer in 30 seconds...' -ForegroundColor Yellow
 Write-Host ''
 Write-Host 'All contest environment cleanup completed!' -ForegroundColor Green
 Write-Host 'Computer will shut down in 30 seconds. Close this window to cancel.' -ForegroundColor Red
+Write-Progress -Activity `$ProgressActivity -Completed
 Start-Sleep -Seconds 30
 Stop-Computer -Force
 "@
