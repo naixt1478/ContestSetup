@@ -16,14 +16,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Predeclare restore backup root so restore-common.ps1 does not fail under StrictMode.
+# restore-common.ps1에서 StrictMode 상태로 미초기화 변수를 읽지 않도록 미리 선언합니다.
 $script:RestoreBackupRoot = $null
-
-$RepoOwner = "naixt1478"
-$RepoName  = "ContestSetup"
-$Branch    = "main"
-$RawBase   = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
-$ScriptDir = if ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { $PSScriptRoot }
 
 function Test-IsAdmin {
     $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -37,28 +31,20 @@ function Get-PreferredPowerShell {
     return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 }
 
-function Invoke-RestoreModule {
-    param([Parameter(Mandatory = $true)] [string]$Module)
-
-    $LocalModulePath = $null
-    if (-not [string]::IsNullOrWhiteSpace($ScriptDir)) {
-        $Candidate = Join-Path $ScriptDir $Module
-        if (Test-Path -LiteralPath $Candidate) {
-            $LocalModulePath = $Candidate
-        }
-    }
-
-    if ($LocalModulePath) {
-        Write-Host "Loading local module: $LocalModulePath" -ForegroundColor DarkGray
-        Get-Content -LiteralPath $LocalModulePath -Raw | Invoke-Expression
-    }
-    else {
-        Write-Host "Loading remote module: $RawBase/$Module" -ForegroundColor DarkGray
-        Invoke-RestMethod "$RawBase/$Module" | Invoke-Expression
-    }
+function Get-ScriptDirectory {
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { return $PSScriptRoot }
+    if ($PSCommandPath) { return (Split-Path -Parent $PSCommandPath) }
+    if ($MyInvocation.MyCommand.Path) { return (Split-Path -Parent $MyInvocation.MyCommand.Path) }
+    return (Get-Location).Path
 }
 
+$ScriptDir = Get-ScriptDirectory
+
 if (-not (Test-IsAdmin)) {
+    if (-not $MyInvocation.MyCommand.Path) {
+        throw '관리자 권한 재실행을 하려면 restore.ps1 파일로 저장한 뒤 -File 방식으로 실행해야 합니다.'
+    }
+
     Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
     $Args = @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $MyInvocation.MyCommand.Path)
     if ($SkipVSCode) { $Args += "-SkipVSCode" }
@@ -77,9 +63,10 @@ if (-not (Test-IsAdmin)) {
 
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
-Write-Host "Contest Environment Restore (Modular)" -ForegroundColor Cyan
-Write-Host "Repository : $RepoOwner/$RepoName"
-Write-Host "Branch     : $Branch"
+Write-Host "Contest Environment Restore (Modular / Local)" -ForegroundColor Cyan
+Write-Host "ScriptDir : $ScriptDir"
+Write-Host "Root      : $Root"
+Write-Host "MsysRoot  : $MsysRoot"
 Write-Host ""
 
 $Modules = @("common.ps1", "restore-common.ps1")
@@ -91,22 +78,32 @@ if (-not $SkipPath) { $Modules += "restore-path.ps1" }
 
 $Total = $Modules.Count
 $Step = 1
+$Module = $null
 
 try {
     foreach ($Module in $Modules) {
+        $ModulePath = Join-Path $ScriptDir $Module
+        if (-not (Test-Path -LiteralPath $ModulePath)) {
+            throw "필수 복구 모듈을 찾지 못했습니다: $ModulePath"
+        }
+
         Write-Host "[$Step/$Total] Running $Module..." -ForegroundColor Yellow
-        Invoke-RestoreModule -Module $Module
+        # 중요: Invoke-Expression을 함수 내부에서 실행하지 않고 dot-source로 현재 스크립트 scope에 로드합니다.
+        . $ModulePath
         $Step++
     }
 
     Write-Host ""
     Write-Host "All restores completed successfully." -ForegroundColor Green
     Write-Host "Important: restart PowerShell and VS Code to reload PATH." -ForegroundColor Yellow
-} catch {
+}
+catch {
     Write-Host ""
     Write-Host "FATAL ERROR during $Module" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
-} finally {
+    throw
+}
+finally {
     if (-not $NoPause) {
         Write-Host "Press Enter to close this window..." -ForegroundColor Yellow
         try { Read-Host | Out-Null } catch {}
