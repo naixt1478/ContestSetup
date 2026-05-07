@@ -76,7 +76,14 @@ $DefaultAiBlockDomains = @(
     'you.com',
     'phind.com',
     'huggingface.co',
-    'replicate.com'
+    'replicate.com',
+    'cdn.openai.com',
+    'auth.openai.com',
+    'auth0.openai.com',
+    'events.statsigapi.net',
+    'x.com',
+    'groq.com',
+    'api.claude.ai'
 )
 
 function Write-Section {
