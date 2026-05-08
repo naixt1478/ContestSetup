@@ -499,6 +499,11 @@ function Backup-PathEnvironment
   param([Parameter(Mandatory = $true)] [string]$BackupRoot)
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
   $SnapshotPath = Join-Path $BackupRoot 'path-environment-before-cleanup.txt'
+  if (Test-Path -LiteralPath $SnapshotPath)
+  {
+    Write-Host "PATH snapshot already exists, preserving original state: $SnapshotPath" -ForegroundColor Gray
+    return
+  }
   $Lines = @('User PATH:', ([Environment]::GetEnvironmentVariable('Path', 'User')), '', 'Process PATH:', $env:Path)
   Write-LinesUtf8NoBom -Path $SnapshotPath -Lines ([string[]]$Lines)
   Write-Host "PATH snapshot saved: $SnapshotPath" -ForegroundColor Green
@@ -523,6 +528,11 @@ function Backup-PathVerified
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
   $SafeLeaf = (Split-Path -Path $Path -Leaf) -replace '[\\/:*?"<>|]', '_'
   $Destination = Join-Path $BackupRoot ("{0}-{1}" -f $SafeLeaf, (Get-PathHashToken -Path $Path))
+  if (Test-Path -LiteralPath $Destination)
+  {
+    Write-Host "Backup already exists, preserving original copy: $Destination" -ForegroundColor Gray
+    return $Destination
+  }
   Write-Host "Backing up: $Path`nBackup to : $Destination"
   $Item = Get-Item -LiteralPath $Path -Force
   if ($Item.PSIsContainer)

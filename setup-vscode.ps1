@@ -319,6 +319,44 @@ function Set-VSCodeDisplayLanguageKorean
   Write-Host "VS Code locale set to Korean (ko) via $ArgvPath" -ForegroundColor Green
 }
 
+function Get-ContestVSCodeShortcutArguments
+{
+  $UserDataDir = Get-ContestVSCodeUserDataDir
+  $ExtensionsDir = Get-ContestVSCodeExtensionsDir
+  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+  return "--user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`""
+}
+
+function Test-ContestVSCodeShortcut
+{
+  param([Parameter(Mandatory = $true)] [object]$Shortcut, [Parameter(Mandatory = $true)] [string]$CodeExe)
+  $ExpectedArgs = Get-ContestVSCodeShortcutArguments
+  return (
+    ([string]$Shortcut.TargetPath) -ieq ([string]$CodeExe) -and
+    ([string]$Shortcut.Arguments) -eq $ExpectedArgs
+  )
+}
+
+function Read-VSCodeShortcutManifest
+{
+  param([Parameter(Mandatory = $true)] [string]$ManifestPath)
+  if (-not (Test-Path -LiteralPath $ManifestPath)) { return @() }
+  try { return @(Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json) } catch { return @() }
+}
+
+function Write-VSCodeShortcutManifest
+{
+  param([Parameter(Mandatory = $true)] [string]$ManifestPath, [Parameter(Mandatory = $true)] [object[]]$Manifest)
+  $Deduped = @($Manifest | Group-Object -Property ShortcutPath | ForEach-Object { $_.Group | Select-Object -Last 1 })
+  Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Deduped -Depth 10
+}
+
+function Get-VSCodeShortcutManifestItem
+{
+  param([Parameter(Mandatory = $true)] [object[]]$Manifest, [Parameter(Mandatory = $true)] [string]$ShortcutPath)
+  return @($Manifest | Where-Object { ([string]$_.ShortcutPath) -ieq $ShortcutPath } | Select-Object -First 1)[0]
+}
+
 
 function Get-InstalledContestVSCodeExtensions
 {
@@ -458,56 +496,26 @@ function Set-ContestVSCodeShortcut
 
   $ContestRoot = Get-ContestVSCodeRoot
   $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
-  
-  if (Test-Path -LiteralPath $ManifestPath) {
-      Write-Host "Shortcut manifest already exists. Shortcuts are already modified. Ensuring desktop shortcut exists." -ForegroundColor Green
-      Initialize-ContestVSCodeIsolated
-
-      $Desktop = [Environment]::GetFolderPath('Desktop')
-      if ($Desktop) {
-        $DesktopShortcutPath = Join-Path $Desktop 'Visual Studio Code.lnk'
-        if (-not (Test-Path -LiteralPath $DesktopShortcutPath)) {
-          $UserDataDir = Get-ContestVSCodeUserDataDir
-          $ExtensionsDir = Get-ContestVSCodeExtensionsDir
-          $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-          New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
-
-          $Shell = New-Object -ComObject WScript.Shell
-          $Shortcut = $Shell.CreateShortcut($DesktopShortcutPath)
-          $Shortcut.TargetPath = $CodeExe
-          $Shortcut.Arguments = "--user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`""
-          $Shortcut.WorkingDirectory = $ContestWorkspace
-          $Shortcut.IconLocation = "$CodeExe,0"
-          $Shortcut.Description = 'Contest isolated Visual Studio Code'
-          $Shortcut.Save()
-
-          $Manifest = @()
-          try {
-            $Manifest = @(Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json)
-          } catch {}
-          $Manifest += [pscustomobject]@{
-            ShortcutPath = $DesktopShortcutPath
-            Existed = $false
-            BackupPath = $null
-          }
-          Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Manifest -Depth 10
-
-          Write-Host "Created desktop shortcut: $DesktopShortcutPath" -ForegroundColor Green
-        }
-      }
-      return
-  }
 
   Initialize-ContestVSCodeIsolated
 
-  $ContestRoot = Get-ContestVSCodeRoot
-  $UserDataDir = Get-ContestVSCodeUserDataDir
-  $ExtensionsDir = Get-ContestVSCodeExtensionsDir
-  $ShortcutBackupRoot = Join-Path (Get-ContestBackupRootPath) ('vscode-shortcuts-' + (Get-ContestTimeStamp))
+  $ShortcutBackupRootFile = Join-Path $ContestRoot 'shortcut-backup-root.txt'
+  $ShortcutBackupRoot = ''
+  if (Test-Path -LiteralPath $ShortcutBackupRootFile)
+  {
+    $ShortcutBackupRoot = (Get-Content -LiteralPath $ShortcutBackupRootFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$ShortcutBackupRoot))
+  {
+    $ShortcutBackupRoot = Join-Path (Get-ContestBackupRootPath) ('vscode-shortcuts-' + (Get-ContestTimeStamp))
+  }
   New-Item -ItemType Directory -Force -Path $ShortcutBackupRoot | Out-Null
 
   $Shell = New-Object -ComObject WScript.Shell
-  $Manifest = @()
+  $Manifest = @(Read-VSCodeShortcutManifest -ManifestPath $ManifestPath)
+  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+  New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
+  $ShortcutArguments = Get-ContestVSCodeShortcutArguments
 
   foreach ($ShortcutPath in Get-VSCodeShortcutTargets)
   {
@@ -518,28 +526,46 @@ function Set-ContestVSCodeShortcut
 
       $Existed = Test-Path -Path $ShortcutPath
       $BackupPath = $null
+      $ManifestItem = Get-VSCodeShortcutManifestItem -Manifest $Manifest -ShortcutPath $ShortcutPath
 
-      if ($Existed)
+      if ($ManifestItem)
       {
-        $BackupName = (Convert-PathToSafeFileName $ShortcutPath) + '.bak.lnk'
-        $BackupPath = Join-Path $ShortcutBackupRoot $BackupName
-        Copy-Item -Path $ShortcutPath -Destination $BackupPath -Force
+        $Existed = [bool]$ManifestItem.Existed
+        $BackupPath = [string]$ManifestItem.BackupPath
+      }
+      elseif ($Existed)
+      {
+        $ExistingShortcut = $Shell.CreateShortcut($ShortcutPath)
+        if (-not (Test-ContestVSCodeShortcut -Shortcut $ExistingShortcut -CodeExe $CodeExe))
+        {
+          $BackupName = (Convert-PathToSafeFileName $ShortcutPath) + '.bak.lnk'
+          $BackupPath = Join-Path $ShortcutBackupRoot $BackupName
+          if (-not (Test-Path -LiteralPath $BackupPath))
+          {
+            Copy-Item -Path $ShortcutPath -Destination $BackupPath -Force
+          }
+        }
+        else
+        {
+          $Existed = $false
+        }
       }
 
       $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-      $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-      New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
       $Shortcut.TargetPath = $CodeExe
-      $Shortcut.Arguments = "--user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`""
+      $Shortcut.Arguments = $ShortcutArguments
       $Shortcut.WorkingDirectory = $ContestWorkspace
       $Shortcut.IconLocation = "$CodeExe,0"
       $Shortcut.Description = 'Contest isolated Visual Studio Code'
       $Shortcut.Save()
 
-      $Manifest += [pscustomobject]@{
-        ShortcutPath = $ShortcutPath
-        Existed = $Existed
-        BackupPath = $BackupPath
+      if (-not $ManifestItem)
+      {
+        $Manifest += [pscustomobject]@{
+          ShortcutPath = $ShortcutPath
+          Existed = $Existed
+          BackupPath = $BackupPath
+        }
       }
 
       Write-Host "Updated shortcut: $ShortcutPath" -ForegroundColor Green
@@ -550,8 +576,7 @@ function Set-ContestVSCodeShortcut
     }
   }
 
-  $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
-  Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Manifest -Depth 10
+  Write-VSCodeShortcutManifest -ManifestPath $ManifestPath -Manifest $Manifest
   Write-LinesUtf8NoBom -Path (Join-Path $ContestRoot 'shortcut-backup-root.txt') -Lines @($ShortcutBackupRoot)
 
   Write-Host "Shortcut manifest: $ManifestPath" -ForegroundColor Green

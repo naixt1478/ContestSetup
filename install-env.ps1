@@ -254,8 +254,10 @@ try
     if ($Module -eq "common.ps1")
     {
       Start-SetupLogging
-      $ExistingBackups = Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue
-      if (-not $ExistingBackups) {
+      $ExistingBackups = @(Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Where-Object {
+          Test-Path -LiteralPath (Join-Path $_.FullName 'path-environment-before-cleanup.txt')
+      })
+      if ($ExistingBackups.Count -eq 0) {
           Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
       } else {
           Write-Host "PATH backup already exists. Skipping to preserve original state." -ForegroundColor Gray

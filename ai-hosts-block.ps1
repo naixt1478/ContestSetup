@@ -341,18 +341,21 @@ function Apply-AiHostsBlock {
     New-Item -ItemType Directory -Force -Path $BlockDir, $LogDir | Out-Null
     if (-not (Test-Path $HostsPath)) { throw "hosts file not found: $HostsPath" }
 
+    $CurrentHosts = Get-Content -Path $HostsPath -Raw
+    $AlreadyApplied = $CurrentHosts -like "*$BeginMarker*" -and $CurrentHosts -like "*$EndMarker*"
     if (-not (Test-Path $BackupPath)) {
         Copy-Item -Path $HostsPath -Destination $BackupPath -Force
         Write-Host "Backup created: $BackupPath" -ForegroundColor Green
-    } else {
+    } elseif (-not $AlreadyApplied) {
         Copy-Item -Path $HostsPath -Destination (Join-Path $BlockDir "hosts.before-ai-block.$TimeStamp.bak") -Force
+    } else {
+        Write-Host "Original hosts backup already exists. Skipping duplicate backup." -ForegroundColor Gray
     }
 
     $Domains = Get-BlockDomains
     if ($Domains.Count -eq 0) { throw 'No AI domains were parsed from the blocklist.' }
     Write-LinesUtf8NoBom -Path $ParsedListPath -Lines ([string[]]$Domains)
 
-    $CurrentHosts = Get-Content -Path $HostsPath -Raw
     $BaseHosts = Remove-ManagedHostsSectionFromText -HostsText $CurrentHosts
     $BlockLines = New-Object System.Collections.Generic.List[string]
     $BlockLines.Add($BeginMarker) | Out-Null
