@@ -212,7 +212,12 @@ try
     if ($Module -eq "common.ps1")
     {
       Start-SetupLogging
-      Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
+      $ExistingBackups = Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue
+      if (-not $ExistingBackups) {
+          Backup-PathEnvironment -BackupRoot (Join-Path $BackupDir ("path-$TimeStamp"))
+      } else {
+          Write-Host "PATH backup already exists. Skipping to preserve original state." -ForegroundColor Gray
+      }
     }
 
     # Clear inner progress bar after each module completes

@@ -16,7 +16,7 @@ if (Test-Path -Path $VSPath) {
     } else {
         Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing via winget (with C++ workload)..." -PercentComplete 50
         # Installing with C++ workload to make it useful for competitive programming
-        $VSArgs = @('install', '--id', 'Microsoft.VisualStudio.2022.Community', '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--override', '"--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive"')
+        $VSArgs = @('install', '--id', 'Microsoft.VisualStudio.2022.Community', '--exact', '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--override', '--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive')
         
         $ExitCode = (Invoke-NativeCommand -FilePath 'winget.exe' -ArgumentList $VSArgs).ExitCode
         if ($ExitCode -eq 0) {

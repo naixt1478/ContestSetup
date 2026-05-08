@@ -422,6 +422,14 @@ function Set-ContestVSCodeShortcut
   $CodeExe = Get-VSCodeExePath
   if (-not $CodeExe) { throw 'Could not find Code.exe for Visual Studio Code.' }
 
+  $ContestRoot = Get-ContestVSCodeRoot
+  $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
+  
+  if (Test-Path -LiteralPath $ManifestPath) {
+      Write-Host "Shortcut manifest already exists. Shortcuts are already modified. Skipping to preserve original backup." -ForegroundColor Green
+      return
+  }
+
   Initialize-ContestVSCodeIsolated
 
   $ContestRoot = Get-ContestVSCodeRoot

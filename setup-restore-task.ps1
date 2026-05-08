@@ -27,7 +27,15 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $Principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Highest
 
-Register-ScheduledTask -TaskName 'ContestSetupRestoreAndCleanup' -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+$TaskName = 'ContestSetupRestoreAndCleanup'
+$ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+
+if ($ExistingTask) {
+    Write-Host "Scheduled task '$TaskName' is already registered. Skipping to preserve existing schedule." -ForegroundColor Gray
+} else {
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+    Write-Host "Scheduled task '$TaskName' registered successfully." -ForegroundColor Green
+}
 
 Write-Host "Scheduled task 'ContestSetupRestoreAndCleanup' registered to run at 2026-05-09 17:10:00." -ForegroundColor Green
 Write-Host "The restore window will be visible when the task runs." -ForegroundColor Yellow
