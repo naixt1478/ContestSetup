@@ -150,11 +150,19 @@ $UninstallKeys = @(
 )
 foreach ($KeyPath in $UninstallKeys) {
     $Entries = Get-ItemProperty -Path $KeyPath -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like "Python $PythonVersion*" -or ($_.DisplayName -like 'Python 3.10*' -and $_.InstallLocation -like "$PythonDir*") }
+        Where-Object {
+            $DisplayName = [string]($_.PSObject.Properties['DisplayName'].Value)
+            $InstallLocation = [string]($_.PSObject.Properties['InstallLocation'].Value)
+            (-not [string]::IsNullOrWhiteSpace($DisplayName)) -and (
+                $DisplayName -like "Python $PythonVersion*" -or
+                ($DisplayName -like 'Python 3.10*' -and $InstallLocation -like "$PythonDir*")
+            )
+        }
     foreach ($Entry in $Entries) {
-        $UninstallString = $Entry.UninstallString
+        $DisplayName = [string]$Entry.PSObject.Properties['DisplayName'].Value
+        $UninstallString = [string]$Entry.PSObject.Properties['UninstallString'].Value
         if ($UninstallString) {
-            Write-Host "  Found uninstaller: $($Entry.DisplayName)" -ForegroundColor Cyan
+            Write-Host "  Found uninstaller: $DisplayName" -ForegroundColor Cyan
             try {
                 if ($UninstallString -match 'MsiExec') {
                     $ProductCode = ($UninstallString -replace '.*(\{[0-9A-Fa-f-]+\}).*', '$1')
