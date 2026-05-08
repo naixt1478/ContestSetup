@@ -404,13 +404,12 @@ function Get-VSCodeShortcutTargets
   $Candidates = @(Get-StandardVSCodeShortcutCandidates)
   $Existing = @($Candidates | Where-Object { Test-Path -LiteralPath $_ })
 
-  if ($Existing.Count -gt 0) { return $Existing }
-
   $Desktop = [Environment]::GetFolderPath('Desktop')
   $StartMenu = [Environment]::GetFolderPath('StartMenu')
   $Targets = @()
+  $Targets += $Existing
   if ($Desktop) { $Targets += (Join-Path $Desktop 'Visual Studio Code.lnk') }
-  if ($StartMenu) { $Targets += (Join-Path $StartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk') }
+  if ($Existing.Count -eq 0 -and $StartMenu) { $Targets += (Join-Path $StartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk') }
 
   return @($Targets | Select-Object -Unique)
 }
@@ -426,7 +425,41 @@ function Set-ContestVSCodeShortcut
   $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
   
   if (Test-Path -LiteralPath $ManifestPath) {
-      Write-Host "Shortcut manifest already exists. Shortcuts are already modified. Skipping to preserve original backup." -ForegroundColor Green
+      Write-Host "Shortcut manifest already exists. Shortcuts are already modified. Ensuring desktop shortcut exists." -ForegroundColor Green
+      Initialize-ContestVSCodeIsolated
+
+      $Desktop = [Environment]::GetFolderPath('Desktop')
+      if ($Desktop) {
+        $DesktopShortcutPath = Join-Path $Desktop 'Visual Studio Code.lnk'
+        if (-not (Test-Path -LiteralPath $DesktopShortcutPath)) {
+          $UserDataDir = Get-ContestVSCodeUserDataDir
+          $ExtensionsDir = Get-ContestVSCodeExtensionsDir
+          $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+          New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
+
+          $Shell = New-Object -ComObject WScript.Shell
+          $Shortcut = $Shell.CreateShortcut($DesktopShortcutPath)
+          $Shortcut.TargetPath = $CodeExe
+          $Shortcut.Arguments = "--user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`""
+          $Shortcut.WorkingDirectory = $ContestWorkspace
+          $Shortcut.IconLocation = "$CodeExe,0"
+          $Shortcut.Description = 'Contest isolated Visual Studio Code'
+          $Shortcut.Save()
+
+          $Manifest = @()
+          try {
+            $Manifest = @(Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json)
+          } catch {}
+          $Manifest += [pscustomobject]@{
+            ShortcutPath = $DesktopShortcutPath
+            Existed = $false
+            BackupPath = $null
+          }
+          Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Manifest -Depth 10
+
+          Write-Host "Created desktop shortcut: $DesktopShortcutPath" -ForegroundColor Green
+        }
+      }
       return
   }
 

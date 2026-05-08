@@ -38,6 +38,46 @@ function Get-PreferredPowerShell
   if ($Pwsh) { return $Pwsh.Source }
   return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 }
+
+function Show-SetupResultMessage
+{
+  param(
+    [Parameter(Mandatory = $true)] [string]$Title,
+    [Parameter(Mandatory = $true)] [string]$Message,
+    [ValidateSet('Information', 'Error', 'Warning')] [string]$Icon = 'Information'
+  )
+
+  try
+  {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    $MessageBoxIcon = [System.Enum]::Parse([System.Windows.Forms.MessageBoxIcon], $Icon)
+    [System.Windows.Forms.MessageBox]::Show(
+      $Message,
+      $Title,
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      $MessageBoxIcon
+    ) | Out-Null
+    return
+  }
+  catch {}
+
+  try
+  {
+    $PopupIcon = switch ($Icon) {
+      'Error' { 16 }
+      'Warning' { 48 }
+      default { 64 }
+    }
+    $Shell = New-Object -ComObject WScript.Shell
+    $Shell.Popup($Message, 0, $Title, $PopupIcon) | Out-Null
+  }
+  catch
+  {
+    Write-Host ""
+    Write-Host $Title -ForegroundColor Yellow
+    Write-Host $Message
+  }
+}
 if (-not (Test-IsAdmin))
 {
   Write-Host "Requesting administrator permission..." -ForegroundColor Yellow
@@ -182,6 +222,8 @@ $Global:ProgressIdInner = 1
 
 $Total = $Modules.Count
 $Step = 1
+$SetupSucceeded = $false
+$SetupResultMessageShown = $false
 
 try
 {
@@ -231,6 +273,15 @@ try
   Write-Host ""
   Write-Host "All setup and tests completed successfully." -ForegroundColor Green
   Write-Host "Important: restart PowerShell and VS Code to reload PATH." -ForegroundColor Yellow
+  $SetupSucceeded = $true
+
+  $LogPath = if (Get-Variable -Name TranscriptPath -ErrorAction SilentlyContinue) { $TranscriptPath } else { $null }
+  $SuccessMessage = "Contest environment setup completed successfully.`r`n`r`nPlease restart PowerShell and VS Code to reload PATH."
+  if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+      $SuccessMessage += "`r`n`r`nLog: $LogPath"
+  }
+  Show-SetupResultMessage -Title 'Contest Setup Complete' -Message $SuccessMessage -Icon Information
+  $SetupResultMessageShown = $true
 }
 catch
 {
@@ -258,6 +309,18 @@ catch
       Write-Warning "Automatic rollback failed: $($_.Exception.Message)"
       Write-Host "You may need to manually run the restore script or delete C:\CPTools." -ForegroundColor Red
   }
+
+  $ErrorLog = if (Get-Variable -Name ErrorLogPath -ErrorAction SilentlyContinue) { $ErrorLogPath } else { $null }
+  $TranscriptLog = if (Get-Variable -Name TranscriptPath -ErrorAction SilentlyContinue) { $TranscriptPath } else { $null }
+  $FailureMessage = "Contest environment setup failed.`r`n`r`nFailed module: $Module`r`nError: $($_.Exception.Message)"
+  if (-not [string]::IsNullOrWhiteSpace($ErrorLog)) {
+      $FailureMessage += "`r`n`r`nError log: $ErrorLog"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($TranscriptLog)) {
+      $FailureMessage += "`r`nTranscript log: $TranscriptLog"
+  }
+  Show-SetupResultMessage -Title 'Contest Setup Failed' -Message $FailureMessage -Icon Error
+  $SetupResultMessageShown = $true
 }
 finally
 {
@@ -269,6 +332,18 @@ finally
   if ($Global:SetupMutex)
   {
     try { $Global:SetupMutex.ReleaseMutex() } catch {}
+  }
+
+  if (-not $SetupResultMessageShown)
+  {
+    $FallbackTitle = if ($SetupSucceeded) { 'Contest Setup Complete' } else { 'Contest Setup Finished' }
+    $FallbackIcon = if ($SetupSucceeded) { 'Information' } else { 'Warning' }
+    $FallbackMessage = if ($SetupSucceeded) {
+      'Contest environment setup completed successfully.'
+    } else {
+      'Contest environment setup finished, but the final result could not be determined. Please check the console output and logs.'
+    }
+    Show-SetupResultMessage -Title $FallbackTitle -Message $FallbackMessage -Icon $FallbackIcon
   }
 
   Write-Host ""
