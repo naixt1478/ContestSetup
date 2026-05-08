@@ -346,14 +346,20 @@ function Read-VSCodeShortcutManifest
 
 function Write-VSCodeShortcutManifest
 {
-  param([Parameter(Mandatory = $true)] [string]$ManifestPath, [Parameter(Mandatory = $true)] [object[]]$Manifest)
+  param(
+    [Parameter(Mandatory = $true)] [string]$ManifestPath,
+    [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]]$Manifest
+  )
   $Deduped = @($Manifest | Group-Object -Property ShortcutPath | ForEach-Object { $_.Group | Select-Object -Last 1 })
   Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Deduped -Depth 10
 }
 
 function Get-VSCodeShortcutManifestItem
 {
-  param([Parameter(Mandatory = $true)] [object[]]$Manifest, [Parameter(Mandatory = $true)] [string]$ShortcutPath)
+  param(
+    [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]]$Manifest,
+    [Parameter(Mandatory = $true)] [string]$ShortcutPath
+  )
   return @($Manifest | Where-Object { ([string]$_.ShortcutPath) -ieq $ShortcutPath } | Select-Object -First 1)[0]
 }
 
