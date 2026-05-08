@@ -99,6 +99,34 @@ if (-not (Test-IsAdmin))
 
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
+# Disable QuickEdit mode to prevent accidental script pausing when clicking the console
+try {
+    $QuickEditCode = @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class ConsoleConfig {
+        const int STD_INPUT_HANDLE = -10;
+        const uint ENABLE_QUICK_EDIT = 0x0040;
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr GetStdHandle(int nStdHandle);
+        [DllImport("kernel32.dll")]
+        static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+        public static void DisableQuickEdit() {
+            IntPtr consoleHandle = GetStdHandle(STD_INPUT_HANDLE);
+            uint consoleMode;
+            if (GetConsoleMode(consoleHandle, out consoleMode)) {
+                consoleMode &= ~ENABLE_QUICK_EDIT;
+                SetConsoleMode(consoleHandle, consoleMode);
+            }
+        }
+    }
+"@
+    Add-Type -TypeDefinition $QuickEditCode -Language CSharp -ErrorAction SilentlyContinue
+    [ConsoleConfig]::DisableQuickEdit()
+} catch {}
+
 # Prevent multiple instances from running concurrently
 $MutexName = "Global\ContestSetupEnvironmentMutex"
 $Global:SetupMutex = New-Object System.Threading.Mutex($false, $MutexName)

@@ -10,6 +10,45 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
+# Disable QuickEdit mode to prevent accidental script pausing when clicking the console
+try {
+    $QuickEditCode = @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class ConsoleConfig {
+        const int STD_INPUT_HANDLE = -10;
+        const uint ENABLE_QUICK_EDIT = 0x0040;
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr GetStdHandle(int nStdHandle);
+        [DllImport("kernel32.dll")]
+        static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+        public static void DisableQuickEdit() {
+            IntPtr consoleHandle = GetStdHandle(STD_INPUT_HANDLE);
+            uint consoleMode;
+            if (GetConsoleMode(consoleHandle, out consoleMode)) {
+                consoleMode &= ~ENABLE_QUICK_EDIT;
+                SetConsoleMode(consoleHandle, consoleMode);
+            }
+        }
+    }
+"@
+    Add-Type -TypeDefinition $QuickEditCode -Language CSharp -ErrorAction SilentlyContinue
+    [ConsoleConfig]::DisableQuickEdit()
+} catch {}
+
+# Critical Safety Check: Prevent deletion of system drives or critical folders
+$RootNormalized = [System.IO.Path]::GetFullPath($Root).TrimEnd('\/')
+$CriticalPaths = @(
+    [System.IO.Path]::GetFullPath($env:SystemDrive).TrimEnd('\/'),
+    [System.IO.Path]::GetFullPath($env:SystemRoot).TrimEnd('\/'),
+    [System.IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\/')
+)
+if ($CriticalPaths -contains $RootNormalized) {
+    throw "FATAL: Safe-guard triggered. Root directory ($Root) is a critical system path. Aborting cleanup to prevent data loss."
+}
+
 # Auto-discover PythonDir if not provided
 if (-not $PythonDir) {
     $PyDirs = Get-ChildItem -Path $Root -Filter "Python3*" -Directory -ErrorAction SilentlyContinue
