@@ -92,6 +92,7 @@ Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Ac
 Invoke-MsysBashChecked 'echo MSYS2 initialized'
 Install-Msys2CaCertificate
 
+# Keep '*' quoted so bash passes it as pacman's overwrite pattern instead of expanding files in the current directory.
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Updating base packages (1/2)" -PercentComplete 30
 Invoke-MsysBashChecked "pacman --noconfirm --disable-download-timeout --overwrite '*' -Syuu" -ExplainMsysTlsErrors
 
