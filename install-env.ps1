@@ -123,13 +123,7 @@ Write-Host "Repository : $RepoOwner/$RepoName"
 Write-Host "Branch     : $Branch"
 Write-Host ""
 
-# If CPTools folder already exists, remove it before starting fresh installation
-if (Test-Path $Root)
-{
-  Write-Host "Existing CPTools folder found at $Root. Removing for clean installation..." -ForegroundColor Yellow
-  Remove-Item -Path $Root -Recurse -Force -ErrorAction SilentlyContinue
-  Write-Host "CPTools folder removed." -ForegroundColor Green
-}
+
 
 # Module display names for the outer progress bar
 $ModuleDisplayNames = @{
@@ -221,11 +215,11 @@ catch
       $OldProgressPref = $ProgressPreference
       try {
           $ProgressPreference = 'SilentlyContinue'
-          $RestoreScript = Invoke-RestMethod -Uri "$RawBase/restore.ps1" -UseBasicParsing
+          $RestoreScript = Invoke-RestMethod -Uri "$RawBase/restore-and-cleanup.ps1" -UseBasicParsing
       } finally {
           $ProgressPreference = $OldProgressPref
       }
-      & ([scriptblock]::Create($RestoreScript)) -NoPause
+      & ([scriptblock]::Create($RestoreScript)) -Root $Root -PythonDir $Global:PythonDir -PythonVersion $Global:PythonVersion
       Write-Host "Automatic rollback completed successfully." -ForegroundColor Green
   } catch {
       Write-Warning "Automatic rollback failed: $($_.Exception.Message)"

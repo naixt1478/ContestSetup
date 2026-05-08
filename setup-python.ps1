@@ -46,5 +46,14 @@ function Install-PythonDirect {
     Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed
 }
 
-Reset-ManagedPython
-Install-PythonDirect
+if (Test-Path $PythonDir) {
+    if (-not (Test-Path $PythonExe)) {
+        Reset-ManagedPython
+    } else {
+        Write-Host "Managed Python $PythonVersion is already installed at $PythonExe. Skipping download/install." -ForegroundColor Green
+        $Global:PythonExe = $PythonExe
+    }
+}
+if (-not (Test-Path $Global:PythonExe) -or $Global:PythonExe -eq $null -or $Global:PythonExe -eq '') {
+    Install-PythonDirect
+}
