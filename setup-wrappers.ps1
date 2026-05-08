@@ -15,6 +15,8 @@ function Create-CommandWrappers {
     $MsysUsrBin = Split-Path $MsysBash -Parent
     $MsysToolPathLine = "set `"PATH=$UcrtBin;$MsysUsrBin;%PATH%`""
 
+    # VS Code can compile directly from PATH once UCRT64 and usr\bin are exposed.
+    # These wrappers are kept only for contest aliases and for pinning python3 to managed 3.10.
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++14.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++14 %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++17.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++17 %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'g++20.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" -std=gnu++20 %*")
@@ -25,20 +27,14 @@ function Create-CommandWrappers {
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'python3.cmd') @('@echo off', "`"$PythonExe`" %*")
     Write-LinesUtf8NoBom (Join-Path $ToolBin 'cat.cmd') @('@echo off', "`"$MsysCat`" %*")
 
-    Write-LinesUtf8NoBom (Join-Path $PathBin 'g++.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\g++.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $PathBin 'gcc.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gcc.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $PathBin 'gdb.cmd') @('@echo off', $MsysToolPathLine, "`"$UcrtBin\gdb.exe`" %*")
-    Write-LinesUtf8NoBom (Join-Path $PathBin 'cat.cmd') @('@echo off', $MsysToolPathLine, "`"$MsysCat`" %*")
-
-    Get-ChildItem -Path $UcrtBin -Filter '*.dll' -File -ErrorAction SilentlyContinue | Copy-Item -Destination $PathBin -Force
     Write-Host 'Wrappers created.' -ForegroundColor Green
 }
 
 function Configure-Path {
     Write-Section 'Configure PATH'
     Remove-ConflictingPathEntries
-    Add-UserPathFront $PathBin
-    Write-Host "Exposed commands: gcc, g++, gdb, cat" -ForegroundColor Green
+    Add-UserPathsFront @($PythonDir, $ToolBin, $UcrtBin, (Split-Path $MsysBash -Parent))
+    Write-Host "Exposed commands: python 3.10, python3, gcc, g++, gdb, cat, g++14, g++17, g++20" -ForegroundColor Green
 }
 
 function Write-VersionReport {

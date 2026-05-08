@@ -254,6 +254,15 @@ function Set-VSCodeAiHiddenSettings
     $SettingsToApply['python.globalModuleSearchPaths'] = @()
   }
 
+  $PythonDirValue = if (-not [string]::IsNullOrWhiteSpace([string]$PythonExeValue)) { Split-Path -Path ([string]$PythonExeValue) -Parent } else { Join-Path (Get-ContestRootPath) 'Python310' }
+  $ToolBinValue = Join-Path (Get-ContestRootPath) 'bin'
+  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64"
+  $UcrtBinValue = Join-Path ([string]$MsysRootValue) 'ucrt64\bin'
+  $MsysUsrBinValue = Join-Path ([string]$MsysRootValue) 'usr\bin'
+  $SettingsToApply['terminal.integrated.env.windows'] = [ordered]@{
+    Path = "$PythonDirValue;$ToolBinValue;$UcrtBinValue;$MsysUsrBinValue;`${env:Path}"
+  }
+
   foreach ($Key in $SettingsToApply.Keys)
   {
     Set-ObjectProperty -Object $Settings -Name $Key -Value $SettingsToApply[$Key]
@@ -614,6 +623,55 @@ if "%~1"=="" (
   Write-Host 'Make sure this directory is before the normal VS Code bin directory in PATH if you want `code` to open the contest profile.' -ForegroundColor Yellow
 }
 
+function Set-ContestVSCodeWorkspaceDefaults
+{
+  Write-Section 'Create contest VS Code build task'
+
+  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
+  $VSCodeDir = Join-Path $ContestWorkspace '.vscode'
+  New-Item -ItemType Directory -Force -Path $VSCodeDir | Out-Null
+
+  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64"
+  $UcrtBinValue = Join-Path ([string]$MsysRootValue) 'ucrt64\bin'
+  $MsysUsrBinValue = Join-Path ([string]$MsysRootValue) 'usr\bin'
+  $GppExeValue = Join-Path $UcrtBinValue 'g++.exe'
+
+  $Tasks = [ordered]@{
+    version = '2.0.0'
+    tasks = @(
+      [ordered]@{
+        label = 'Build C++17'
+        type = 'shell'
+        command = $GppExeValue
+        args = @(
+          '-std=gnu++17',
+          '-O2',
+          '-Wall',
+          '-Wextra',
+          '-g',
+          '${file}',
+          '-o',
+          '${fileDirname}\${fileBasenameNoExtension}.exe'
+        )
+        options = [ordered]@{
+          cwd = '${fileDirname}'
+          env = [ordered]@{
+            Path = "$UcrtBinValue;$MsysUsrBinValue;`${env:Path}"
+          }
+        }
+        group = [ordered]@{
+          kind = 'build'
+          isDefault = $true
+        }
+        problemMatcher = @('$gcc')
+      }
+    )
+  }
+
+  Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'tasks.json') -InputObject $Tasks -Depth 20
+  Write-Host "Contest VS Code build task created: $(Join-Path $VSCodeDir 'tasks.json')" -ForegroundColor Green
+}
+
 function Restore-NormalVSCodeShortcut
 {
   param([switch]$RemoveContestData)
@@ -734,6 +792,7 @@ Set-ContestVSCodeShortcut
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Creating Wrappers..." -PercentComplete 75
 New-ContestVSCodeLauncher
 New-ContestVSCodeCliWrapper
+Set-ContestVSCodeWorkspaceDefaults
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Locking Extension Marketplace..." -PercentComplete 90
 Disable-VSCodeMarketplace

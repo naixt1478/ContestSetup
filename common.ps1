@@ -247,27 +247,76 @@ function Invoke-DownloadFile
   New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($OutFile)) | Out-Null
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
+  $TempOutFile = "$OutFile.part"
   $LastError = $null
   for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++)
   {
     try
     {
       Write-Host "Downloading ($Attempt/$MaxAttempts): $Url"
-      $Params = @{ Uri = $Url; OutFile = $OutFile; ErrorAction = 'Stop' }
-      if ($PSVersionTable.PSVersion.Major -le 5) { $Params['UseBasicParsing'] = $true }
-      $OldProgressPref = $ProgressPreference
-      try {
-          $ProgressPreference = 'SilentlyContinue'
-          Invoke-WebRequest @Params
-      } finally {
-          $ProgressPreference = $OldProgressPref
+      if (Test-Path -LiteralPath $TempOutFile) { Remove-Item -LiteralPath $TempOutFile -Force -ErrorAction SilentlyContinue }
+      try
+      {
+        $Handler = $null
+        $Client = $null
+        $Response = $null
+        $InputStream = $null
+        $OutputStream = $null
+        Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+        $Handler = New-Object System.Net.Http.HttpClientHandler
+        $Handler.AllowAutoRedirect = $true
+        $Client = New-Object System.Net.Http.HttpClient($Handler)
+        $Client.Timeout = [TimeSpan]::FromMinutes(60)
+        try { $Client.DefaultRequestHeaders.UserAgent.ParseAdd('ContestSetup/1.0') } catch {}
+
+        $Response = $Client.GetAsync($Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        if (-not $Response.IsSuccessStatusCode)
+        {
+          throw "HTTP $([int]$Response.StatusCode) $($Response.ReasonPhrase)"
+        }
+
+        $InputStream = $Response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $OutputStream = [System.IO.File]::Open($TempOutFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try
+        {
+          $Buffer = New-Object byte[] (1024 * 1024)
+          while (($BytesRead = $InputStream.Read($Buffer, 0, $Buffer.Length)) -gt 0)
+          {
+            $OutputStream.Write($Buffer, 0, $BytesRead)
+          }
+        }
+        finally
+        {
+          if ($OutputStream) { $OutputStream.Dispose() }
+          if ($InputStream) { $InputStream.Dispose() }
+          if ($Response) { $Response.Dispose() }
+          if ($Client) { $Client.Dispose() }
+          if ($Handler) { $Handler.Dispose() }
+        }
       }
+      catch
+      {
+        if ($PSVersionTable.PSVersion.Major -le 5)
+        {
+          Write-Warning "Fast download path failed. Falling back to Invoke-WebRequest. $($_.Exception.Message)"
+          $Params = @{ Uri = $Url; OutFile = $TempOutFile; ErrorAction = 'Stop'; UseBasicParsing = $true }
+          $OldProgressPref = $ProgressPreference
+          try { $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest @Params }
+          finally { $ProgressPreference = $OldProgressPref }
+        }
+        else { throw }
+      }
+
+      if (-not (Test-Path -LiteralPath $TempOutFile)) { throw "Download did not create file: $TempOutFile" }
+      if ((Get-Item -LiteralPath $TempOutFile).Length -le 0) { throw "Downloaded file is empty: $TempOutFile" }
+      Move-Item -LiteralPath $TempOutFile -Destination $OutFile -Force
       if (-not (Test-Path $OutFile)) { throw "Download did not create file: $OutFile" }
       return
     }
     catch
     {
       $LastError = $_
+      if (Test-Path -LiteralPath $TempOutFile) { Remove-Item -LiteralPath $TempOutFile -Force -ErrorAction SilentlyContinue }
       if ($Attempt -lt $MaxAttempts) { Write-Warning "Download failed. Retrying... $($_.Exception.Message)"; Start-Sleep -Seconds 2 }
     }
   }
@@ -304,6 +353,24 @@ function Assert-AuthenticodeValid
 function Download-VerifiedFile
 {
   param([string]$Url, [string]$OutFile, [string]$ExpectedSha256 = '', [string[]]$AllowedPublisherKeywords = @())
+  $Extension = [IO.Path]::GetExtension($OutFile).ToLowerInvariant()
+  $CanAuthenticodeVerify = $Extension -in @('.exe', '.msi', '.msixbundle', '.appx', '.appxbundle')
+  $CanReuseExisting = (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) -or (($Url -notmatch '(?i)(^|/|-)latest($|/|-)') -and $CanAuthenticodeVerify)
+  if ($CanReuseExisting -and (Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 0))
+  {
+    try
+    {
+      Assert-FileSha256 -Path $OutFile -ExpectedSha256 $ExpectedSha256
+      Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
+      Write-Host "Using existing verified download: $OutFile" -ForegroundColor Green
+      return
+    }
+    catch
+    {
+      Write-Warning "Existing download could not be verified. Re-downloading. $($_.Exception.Message)"
+      Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+    }
+  }
   Invoke-DownloadFile -Url $Url -OutFile $OutFile
   Assert-FileSha256 -Path $OutFile -ExpectedSha256 $ExpectedSha256
   Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
@@ -335,6 +402,43 @@ function Add-UserPathFront
   }
   $env:Path = ($PathToAdd + ';' + ($EnvParts -join ';')).TrimEnd(';')
   Write-Host "PATH added: $PathToAdd" -ForegroundColor Green
+}
+
+function Add-UserPathsFront
+{
+  param([Parameter(Mandatory = $true)] [string[]]$PathsToAdd)
+  $ValidPaths = @()
+  $Seen = @{}
+  foreach ($PathToAdd in $PathsToAdd)
+  {
+    if ([string]::IsNullOrWhiteSpace($PathToAdd)) { continue }
+    if (-not (Test-Path $PathToAdd)) { Write-Warning "PATH target not found: $PathToAdd"; continue }
+    $Normalized = Normalize-PathForCompare $PathToAdd
+    if (-not $Seen.ContainsKey($Normalized))
+    {
+      $Seen[$Normalized] = $true
+      $ValidPaths += $PathToAdd
+    }
+  }
+  if ($ValidPaths.Count -eq 0) { return }
+
+  $TargetNormals = @($Seen.Keys)
+  $Current = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $UserParts = @()
+  if (-not [string]::IsNullOrWhiteSpace($Current))
+  {
+    $UserParts = $Current.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and ($TargetNormals -notcontains (Normalize-PathForCompare $_)) }
+  }
+  [Environment]::SetEnvironmentVariable('Path', (($ValidPaths + $UserParts) -join ';').TrimEnd(';'), 'User')
+
+  $EnvParts = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:Path))
+  {
+    $EnvParts = $env:Path.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and ($TargetNormals -notcontains (Normalize-PathForCompare $_)) }
+  }
+  $env:Path = (($ValidPaths + $EnvParts) -join ';').TrimEnd(';')
+
+  foreach ($PathToAdd in $ValidPaths) { Write-Host "PATH added: $PathToAdd" -ForegroundColor Green }
 }
 
 function Remove-PathEntriesMatching
@@ -426,7 +530,7 @@ function Backup-PathVerified
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     $RoboLogPath = Join-Path (Join-Path $LogDir 'robocopy') ("backup-{0}-{1}.log" -f $SafeLeaf, $TimeStamp)
     New-Item -ItemType Directory -Force -Path (Split-Path $RoboLogPath -Parent) | Out-Null
-    & robocopy.exe $Path $Destination '/E' '/COPY:DAT' '/DCOPY:DAT' '/XJ' '/R:2' '/W:1' '/NP' '/NFL' '/NDL' "/LOG+:$RoboLogPath" | Out-Null
+    & robocopy.exe $Path $Destination '/E' '/COPY:DAT' '/DCOPY:DAT' '/XJ' '/R:2' '/W:1' '/NP' '/NFL' '/NDL' '/MT:16' "/LOG+:$RoboLogPath" | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Backup failed by robocopy. Source=$Path, Destination=$Destination" }
   }
   else

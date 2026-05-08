@@ -11,21 +11,7 @@ function Reset-ManagedPython {
 function Install-PythonDirect {
     Write-Section "Install Python $PythonVersion"
     $PA = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] Python Setup"
-    Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Checking existing installation..." -PercentComplete 10
-
-    # Check if Python 3.10.x already exists on the system
-    $ExistingPython = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($ExistingPython) {
-        $ExistingVersion = try { (& $ExistingPython.Source --version 2>&1) -replace 'Python\s*', '' } catch { '' }
-        if ($ExistingVersion -match '^3\.10\.') {
-            Write-Host "Python 3.10 is already installed: $($ExistingPython.Source) (version $ExistingVersion). Skipping." -ForegroundColor Green
-            $Global:PythonExe = $ExistingPython.Source
-            Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed
-            return
-        } else {
-            Write-Host "Python found ($ExistingVersion) but not 3.10.x. Proceeding with installation." -ForegroundColor Yellow
-        }
-    }
+    Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Checking managed installation..." -PercentComplete 10
 
     if (-not (Test-Path $PythonExe)) {
         if (-not (Test-Path $PythonInstaller)) {
@@ -42,6 +28,7 @@ function Install-PythonDirect {
     }
     if (-not (Test-Path $PythonExe)) { throw "Python install failed or python.exe not found: $PythonExe" }
     Invoke-NativeChecked -FilePath $PythonExe -ArgumentList @('--version') | Out-Null
+    $Global:PythonExe = $PythonExe
     Write-Host "Python installed: $PythonExe" -ForegroundColor Green
     Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Completed
 }
@@ -54,6 +41,8 @@ if (Test-Path $PythonDir) {
         $Global:PythonExe = $PythonExe
     }
 }
-if (-not (Test-Path $Global:PythonExe) -or $Global:PythonExe -eq $null -or $Global:PythonExe -eq '') {
+$ConfiguredPythonExe = Get-Variable -Name 'PythonExe' -Scope Global -ErrorAction SilentlyContinue
+$ConfiguredPythonExeValue = if ($ConfiguredPythonExe) { [string]$ConfiguredPythonExe.Value } else { '' }
+if ([string]::IsNullOrWhiteSpace($ConfiguredPythonExeValue) -or -not (Test-Path -LiteralPath $ConfiguredPythonExeValue)) {
     Install-PythonDirect
 }
