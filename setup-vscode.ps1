@@ -256,7 +256,7 @@ function Set-VSCodeAiHiddenSettings
 
   $PythonDirValue = if (-not [string]::IsNullOrWhiteSpace([string]$PythonExeValue)) { Split-Path -Path ([string]$PythonExeValue) -Parent } else { Join-Path (Get-ContestRootPath) 'Python310' }
   $ToolBinValue = Join-Path (Get-ContestRootPath) 'bin'
-  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue (Join-Path (Get-ContestRootPath) 'msys64')
+  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64"
   $UcrtBinValue = Join-Path ([string]$MsysRootValue) 'ucrt64\bin'
   $MsysUsrBinValue = Join-Path ([string]$MsysRootValue) 'usr\bin'
   $SettingsToApply['terminal.integrated.env.windows'] = [ordered]@{
@@ -656,7 +656,7 @@ function Set-ContestVSCodeWorkspaceDefaults
   $VSCodeDir = Join-Path $ContestWorkspace '.vscode'
   New-Item -ItemType Directory -Force -Path $VSCodeDir | Out-Null
 
-  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue (Join-Path (Get-ContestRootPath) 'msys64')
+  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64"
   $UcrtBinValue = Join-Path ([string]$MsysRootValue) 'ucrt64\bin'
   $MsysUsrBinValue = Join-Path ([string]$MsysRootValue) 'usr\bin'
   $GppExeValue = Join-Path $UcrtBinValue 'g++.exe'

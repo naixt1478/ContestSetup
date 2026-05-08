@@ -3,7 +3,6 @@
 [CmdletBinding()]
 param(
     [string]$Root = "$env:SystemDrive\CPTools",
-    [string]$MsysRoot = '',
     [string]$PythonDir = '',
     [string]$PythonVersion = '3.10.11',
     [switch]$Shutdown
@@ -98,10 +97,15 @@ function Stop-ProcessesUnderPath {
     }
 }
 
+function Get-ObjectPropertyValue {
+    param([Parameter(Mandatory = $true)] [object]$Object, [Parameter(Mandatory = $true)] [string]$Name)
+    $Property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $Property) { return '' }
+    return [string]$Property.Value
+}
+
 # Critical Safety Check: Prevent deletion of system drives or critical folders
 $Root = Assert-SafeRemovalPath -Path $Root -Name 'Root'
-if ([string]::IsNullOrWhiteSpace($MsysRoot)) { $MsysRoot = Join-Path $Root 'msys64' }
-$MsysRoot = Assert-SafeRemovalPath -Path $MsysRoot -Name 'MsysRoot'
 
 # Auto-discover PythonDir if not provided
 if (-not $PythonDir) {
@@ -126,9 +130,9 @@ Write-Host '  Contest Environment Restore & Cleanup' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
 
-# ── Step 1/7: Restore VS Code Shortcuts ──
-Write-Progress -Activity $ProgressActivity -Status '[1/7] Restoring VS Code Shortcuts...' -PercentComplete 5
-Write-Host '[1/7] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
+# ── Step 1/6: Restore VS Code Shortcuts ──
+Write-Progress -Activity $ProgressActivity -Status '[1/6] Restoring VS Code Shortcuts...' -PercentComplete 5
+Write-Host '[1/6] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
 if (Test-Path -LiteralPath $ManifestPath) {
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     foreach ($Item in $Manifest) {
@@ -147,9 +151,9 @@ if (Test-Path -LiteralPath $ManifestPath) {
     Write-Host '  No shortcut manifest found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 2/7: Restore PATH Environment Variable ──
-Write-Progress -Activity $ProgressActivity -Status '[2/7] Restoring PATH...' -PercentComplete 20
-Write-Host '[2/7] Restoring PATH Environment Variable...' -ForegroundColor Yellow
+# ── Step 2/6: Restore PATH Environment Variable ──
+Write-Progress -Activity $ProgressActivity -Status '[2/6] Restoring PATH...' -PercentComplete 20
+Write-Host '[2/6] Restoring PATH Environment Variable...' -ForegroundColor Yellow
 $BackupDir = Join-Path $Root 'backup'
 $PathSnapshots = Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
 if ($PathSnapshots) {
@@ -167,9 +171,9 @@ if ($PathSnapshots) {
     Write-Host '  No PATH backup found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 3/7: Restore AI Hosts Block ──
-Write-Progress -Activity $ProgressActivity -Status '[3/7] Restoring AI Hosts...' -PercentComplete 35
-Write-Host '[3/7] Restoring AI Hosts Block...' -ForegroundColor Yellow
+# ── Step 3/6: Restore AI Hosts Block ──
+Write-Progress -Activity $ProgressActivity -Status '[3/6] Restoring AI Hosts...' -PercentComplete 35
+Write-Host '[3/6] Restoring AI Hosts Block...' -ForegroundColor Yellow
 $AiScript = Join-Path $Root 'ai-hosts-block.ps1'
 if (Test-Path -LiteralPath $AiScript) {
     try {
@@ -188,9 +192,9 @@ if (Test-Path -LiteralPath $AiScript) {
     Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 4/7: Uninstall Python ──
-Write-Progress -Activity $ProgressActivity -Status '[4/7] Uninstalling Python...' -PercentComplete 50
-Write-Host '[4/7] Uninstalling Python...' -ForegroundColor Yellow
+# ── Step 4/6: Uninstall Python ──
+Write-Progress -Activity $ProgressActivity -Status '[4/6] Uninstalling Python...' -PercentComplete 50
+Write-Host '[4/6] Uninstalling Python...' -ForegroundColor Yellow
 
 # Method 1: Try the cached MSI/EXE uninstaller via Windows Registry
 $PythonUninstalled = $false
@@ -202,16 +206,16 @@ $UninstallKeys = @(
 foreach ($KeyPath in $UninstallKeys) {
     $Entries = Get-ItemProperty -Path $KeyPath -ErrorAction SilentlyContinue |
         Where-Object {
-            $DisplayName = [string]($_.PSObject.Properties['DisplayName'].Value)
-            $InstallLocation = [string]($_.PSObject.Properties['InstallLocation'].Value)
+            $DisplayName = Get-ObjectPropertyValue -Object $_ -Name 'DisplayName'
+            $InstallLocation = Get-ObjectPropertyValue -Object $_ -Name 'InstallLocation'
             (-not [string]::IsNullOrWhiteSpace($DisplayName)) -and (
                 $DisplayName -like "Python $PythonVersion*" -or
                 ($DisplayName -like 'Python 3.10*' -and $InstallLocation -like "$PythonDir*")
             )
         }
     foreach ($Entry in $Entries) {
-        $DisplayName = [string]$Entry.PSObject.Properties['DisplayName'].Value
-        $UninstallString = [string]$Entry.PSObject.Properties['UninstallString'].Value
+        $DisplayName = Get-ObjectPropertyValue -Object $Entry -Name 'DisplayName'
+        $UninstallString = Get-ObjectPropertyValue -Object $Entry -Name 'UninstallString'
         if ($UninstallString) {
             Write-Host "  Found uninstaller: $DisplayName" -ForegroundColor Cyan
             try {
@@ -261,51 +265,9 @@ if ($PythonUninstalled) {
     Write-Host '  Python was not found or already uninstalled.' -ForegroundColor Gray
 }
 
-# ── Step 5/7: Remove managed MSYS2 ──
-Write-Progress -Activity $ProgressActivity -Status '[5/7] Removing managed MSYS2...' -PercentComplete 62
-Write-Host '[5/7] Removing managed MSYS2...' -ForegroundColor Yellow
-
-$MsysMarkerPath = Join-Path $MsysRoot '.contestsetup-managed'
-if (Test-Path -LiteralPath $MsysMarkerPath) {
-    $MsysInstallMethod = ''
-    try {
-        $MsysMarker = Get-Content -LiteralPath $MsysMarkerPath -Raw | ConvertFrom-Json
-        $MsysInstallMethod = [string]$MsysMarker.InstallMethod
-    } catch {}
-
-    Stop-ProcessesUnderPath -Path $MsysRoot -ProcessNames @('bash', 'sh', 'pacman', 'g++', 'gcc', 'gdb', 'make', 'mingw32-make')
-
-    if ($MsysInstallMethod -eq 'winget' -and (Get-Command 'winget.exe' -ErrorAction SilentlyContinue)) {
-        try {
-            Start-Process -FilePath 'winget.exe' -ArgumentList @('uninstall', '--id', 'MSYS2.MSYS2', '--exact', '--silent') -Wait -PassThru -WindowStyle Hidden | Out-Null
-        } catch {
-            Write-Warning "  winget MSYS2 uninstall failed: $($_.Exception.Message)"
-        }
-    }
-
-    if (Test-Path -LiteralPath $MsysRoot) {
-        try {
-            Remove-Item -LiteralPath $MsysRoot -Recurse -Force -ErrorAction Stop
-            Write-Host "  Managed MSYS2 folder removed: $MsysRoot" -ForegroundColor Green
-        } catch {
-            Write-Warning "  Managed MSYS2 removal failed: $($_.Exception.Message)"
-        }
-    } else {
-        Write-Host '  Managed MSYS2 folder was already removed.' -ForegroundColor Gray
-    }
-} elseif (Test-Path -LiteralPath $MsysRoot) {
-    if (Test-PathInside -ChildPath $MsysRoot -ParentPath $Root) {
-        Write-Host '  MSYS2 is inside the contest root and will be removed with CPTools.' -ForegroundColor Gray
-    } else {
-        Write-Host '  MSYS2 marker not found. Skipping external MSYS2 removal to avoid deleting a user installation.' -ForegroundColor Gray
-    }
-} else {
-    Write-Host '  MSYS2 was not found or already removed.' -ForegroundColor Gray
-}
-
-# ── Step 6/7: Kill processes & Remove CPTools folder ──
-Write-Progress -Activity $ProgressActivity -Status '[6/7] Removing CPTools folder...' -PercentComplete 75
-Write-Host '[6/7] Removing CPTools folder...' -ForegroundColor Yellow
+# ── Step 5/6: Kill processes & Remove CPTools folder ──
+Write-Progress -Activity $ProgressActivity -Status '[5/6] Removing CPTools folder...' -PercentComplete 70
+Write-Host '[5/6] Removing CPTools folder...' -ForegroundColor Yellow
 
 # Kill any VS Code or related processes that might lock files
 Stop-ProcessesUnderPath -Path $Root -ProcessNames @('Code', 'Code - Insiders', 'node', 'python', 'python3', 'g++', 'gcc', 'gdb', 'bash', 'sh')
@@ -345,8 +307,8 @@ del "%~f0"
     Write-Host '  Deferred cleanup scheduled. CPTools will be removed shortly.' -ForegroundColor Green
 }
 
-# ── Step 7/7: Shutdown computer ──
-Write-Progress -Activity $ProgressActivity -Status '[7/7] Finalizing...' -PercentComplete 90
+# ── Step 6/6: Shutdown computer ──
+Write-Progress -Activity $ProgressActivity -Status '[6/6] Finalizing...' -PercentComplete 90
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host '  All contest environment cleanup completed!' -ForegroundColor Green

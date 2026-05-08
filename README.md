@@ -5,10 +5,10 @@
 ## 기능 요약
 - **독립된 VS Code 환경**: 사용자 설정 및 확장 프로그램이 기존 설정과 충돌하지 않는 완전 독립형(Portable) VS Code 자동 세팅
 - **VS Code 한국어 표시 언어 설정**: 한국어 언어팩을 설치하고 대회용 VS Code 프로필의 표시 언어를 한국어(`ko`)로 자동 설정
-- **MSYS2 (GCC/GDB) 및 Python 자동 설치**: `C:\CPTools` 아래에 최신 UCRT64 기반 GCC 툴체인 및 Python 3.10 설치
+- **MSYS2 (GCC/GDB) 및 Python 자동 설치**: MSYS2는 기본 위치(`C:\msys64`)에, Python 3.10 및 대회용 도구는 `C:\CPTools` 아래에 설치
 - **버전별 컴파일러 래퍼 제공**: `g++14`, `g++17`, `g++20`, `g++`, `gcc`, `gdb`, `python3`, `cat` 등 대회 필수 명령어 자동 구성
 - **AI 호스트 차단 (치팅 방지)**: ChatGPT, Copilot, Claude 등 주요 AI 서비스 접속을 Windows `hosts` 수준에서 원천 차단
-- **스케줄러 기반 완벽한 자동 복구**: 지정된 시간(**2026년 5월 9일 17시 10분**)에 AI 호스트 차단 해제, 생성된 단축아이콘 삭제, 환경 변수(PATH) 롤백 및 다운로드된 전체 툴셋 폴더(`C:\CPTools`)를 깔끔하게 자동 제거합니다.
+- **스케줄러 기반 완벽한 자동 복구**: 지정된 시간(**2026년 5월 9일 17시 10분**)에 AI 호스트 차단 해제, 생성된 단축아이콘 삭제, 환경 변수(PATH) 롤백 및 다운로드된 대회용 툴셋 폴더(`C:\CPTools`)를 깔끔하게 자동 제거합니다. MSYS2(`C:\msys64`)는 제거하지 않습니다.
 
 ---
 
@@ -37,4 +37,4 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/install-env.ps
 ```powershell
 irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore-and-cleanup.ps1 | iex
 ```
-이 명령어는 MSYS2, Python, VS Code, AI 차단 설정, 그리고 환경 변수를 설치 이전 상태로 모두 되돌려 줍니다.
+이 명령어는 Python, 대회용 VS Code, AI 차단 설정, 그리고 환경 변수를 설치 이전 상태로 되돌립니다. MSYS2(`C:\msys64`)는 유지합니다.

@@ -20,7 +20,7 @@ if (-not (Test-Path $RestoreScriptPath)) { throw "Failed to download $RestoreScr
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Registering Scheduled Task..." -PercentComplete 60
 
 # Build the Task Scheduler action. We pass the parameters that are specific to this environment.
-$TaskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`" -Root `"$Root`" -MsysRoot `"$MsysRoot`" -PythonDir `"$PythonDir`" -PythonVersion `"$PythonVersion`" -Shutdown"
+$TaskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`" -Root `"$Root`" -PythonDir `"$PythonDir`" -PythonVersion `"$PythonVersion`" -Shutdown"
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $TaskArgs
 $Trigger = New-ScheduledTaskTrigger -Once -At '2026-05-09T17:10:00'
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable

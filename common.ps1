@@ -27,7 +27,7 @@ function Get-ContestVariableValue
 }
 
 $Root = [string](Get-ContestVariableValue -Name 'Root' -DefaultValue "$env:SystemDrive\CPTools")
-$MsysRoot = [string](Get-ContestVariableValue -Name 'MsysRoot' -DefaultValue (Join-Path $Root 'msys64'))
+$MsysRoot = [string](Get-ContestVariableValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64")
 $PythonVersion = [string](Get-ContestVariableValue -Name 'PythonVersion' -DefaultValue '3.10.11')
 $SkipSignatureCheck = [bool](Get-ContestVariableValue -Name 'SkipSignatureCheck' -DefaultValue $false)
 
@@ -364,16 +364,25 @@ function Assert-AuthenticodeValid
 
 function Download-VerifiedFile
 {
-  param([string]$Url, [string]$OutFile, [string]$ExpectedSha256 = '', [string[]]$AllowedPublisherKeywords = @())
+  param(
+    [string]$Url,
+    [string]$OutFile,
+    [string]$ExpectedSha256 = '',
+    [string[]]$AllowedPublisherKeywords = @(),
+    [switch]$SkipAuthenticodeCheck
+  )
   $Extension = [IO.Path]::GetExtension($OutFile).ToLowerInvariant()
   $CanAuthenticodeVerify = $Extension -in @('.exe', '.msi', '.msixbundle', '.appx', '.appxbundle')
-  $CanReuseExisting = (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) -or (($Url -notmatch '(?i)(^|/|-)latest($|/|-)') -and $CanAuthenticodeVerify)
+  $CanReuseExisting = (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) -or (($Url -notmatch '(?i)(^|/|-)latest($|/|-)') -and $CanAuthenticodeVerify -and (-not $SkipAuthenticodeCheck))
   if ($CanReuseExisting -and (Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 0))
   {
     try
     {
       Assert-FileSha256 -Path $OutFile -ExpectedSha256 $ExpectedSha256
-      Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
+      if (-not $SkipAuthenticodeCheck)
+      {
+        Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
+      }
       Write-Host "Using existing verified download: $OutFile" -ForegroundColor Green
       return
     }
@@ -385,7 +394,14 @@ function Download-VerifiedFile
   }
   Invoke-DownloadFile -Url $Url -OutFile $OutFile
   Assert-FileSha256 -Path $OutFile -ExpectedSha256 $ExpectedSha256
-  Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
+  if ($SkipAuthenticodeCheck)
+  {
+    Write-Warning "Skipping Authenticode check for this unsigned installer: $OutFile"
+  }
+  else
+  {
+    Assert-AuthenticodeValid -Path $OutFile -AllowedPublisherKeywords $AllowedPublisherKeywords
+  }
 }
 
 function Normalize-PathForCompare

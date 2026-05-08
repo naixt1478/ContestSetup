@@ -1,33 +1,9 @@
 # setup-msys2.ps1
 
-$MsysManagedMarker = Join-Path $MsysRoot '.contestsetup-managed'
-
-function Write-Msys2ManagedMarker
+function Show-MSYS2PreservedNotice
 {
-  param([Parameter(Mandatory = $true)] [string]$InstallMethod)
-  $Marker = [ordered]@{
-    ManagedBy = 'ContestSetup'
-    CreatedAt = (Get-Date).ToString('o')
-    Root = $Root
-    MsysRoot = $MsysRoot
-    InstallMethod = $InstallMethod
-  }
-  Write-JsonUtf8NoBom -Path $MsysManagedMarker -InputObject $Marker -Depth 5
-}
-
-function Reset-MSYS2Completely
-{
-  Write-Section 'Reset existing MSYS2'
-  $SystemDefaultMsysRoot = "$env:SystemDrive\msys64"
-  if ((Normalize-PathForCompare $MsysRoot) -eq (Normalize-PathForCompare $SystemDefaultMsysRoot))
-  {
-    Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
-  }
-  if (Test-Path $MsysRoot)
-  {
-    Write-Host "Removing existing MSYS2 without backup as requested..."
-    Remove-Item -Path $MsysRoot -Recurse -Force -ErrorAction SilentlyContinue
-  }
+  Write-Section 'Check existing MSYS2'
+  Write-Host "MSYS2 is preserved at $MsysRoot. Existing files are not removed by ContestSetup." -ForegroundColor Yellow
 }
 
 function Install-MSYS2Direct
@@ -38,7 +14,7 @@ function Install-MSYS2Direct
   {
     Write-Host "MSYS2 root exists but bash is missing. Reinstalling over it..."
   }
-  Download-VerifiedFile -Url $Msys2InstallerUrl -OutFile $Msys2InstallerPath -AllowedPublisherKeywords @()
+  Download-VerifiedFile -Url $Msys2InstallerUrl -OutFile $Msys2InstallerPath -AllowedPublisherKeywords @() -SkipAuthenticodeCheck
   $RootForInstaller = Convert-ToForwardSlashPath $MsysRoot
   $Process = Start-Process -FilePath $Msys2InstallerPath -ArgumentList @('in', '--confirm-command', '--accept-messages', '--root', $RootForInstaller) -Wait -PassThru
   if ($Process.ExitCode -ne 0) { throw "MSYS2 installer failed. Exit code: $($Process.ExitCode)" }
@@ -221,23 +197,26 @@ if (Test-Path $MsysBash)
 }
 else
 {
-  Reset-MSYS2Completely
-  $MsysInstallMethod = 'direct'
   $SystemDefaultMsysRoot = "$env:SystemDrive\msys64"
   $CanUseWingetForRequestedRoot = (Normalize-PathForCompare $MsysRoot) -eq (Normalize-PathForCompare $SystemDefaultMsysRoot)
-
-  if ($CanUseWingetForRequestedRoot -and (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'))
+  if ((Test-Path $MsysRoot) -and (-not (Test-Path $MsysBash)))
   {
-    $MsysInstallMethod = 'winget'
+    Show-MSYS2PreservedNotice
   }
-  else
+
+  if ($CanUseWingetForRequestedRoot)
+  {
+    Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2' | Out-Null
+  }
+
+  $WaitCount = 0; while (-not (Test-Path $MsysBash) -and $WaitCount -lt 30) { Start-Sleep -Seconds 2; $WaitCount++ }
+  if (-not (Test-Path $MsysBash))
   {
     Install-MSYS2Direct
   }
 
   $WaitCount = 0; while (-not (Test-Path $MsysBash) -and $WaitCount -lt 60) { Start-Sleep -Seconds 2; $WaitCount++ }
   if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
-  Write-Msys2ManagedMarker -InstallMethod $MsysInstallMethod
 }
 
 Write-Section 'Install MSYS2 packages'
