@@ -130,7 +130,18 @@ function Install-VSCodeStandalone
   
   $ExtractPath = Join-Path (Get-ContestRootPath) 'vscode'
   Write-Host "Extracting VS Code to $ExtractPath ..."
-  Expand-Archive -Path $VSCodeArchivePath -DestinationPath $ExtractPath -Force
+  
+  $TarExe = Get-Command 'tar.exe' -ErrorAction SilentlyContinue
+  if ($TarExe) {
+      New-Item -ItemType Directory -Force -Path $ExtractPath | Out-Null
+      $TarProc = Start-Process -FilePath $TarExe.Source -ArgumentList "-xf `"$VSCodeArchivePath`" -C `"$ExtractPath`"" -Wait -PassThru -WindowStyle Hidden
+      if ($TarProc.ExitCode -ne 0) {
+          Write-Warning "tar.exe failed. Falling back to Expand-Archive..."
+          Expand-Archive -Path $VSCodeArchivePath -DestinationPath $ExtractPath -Force
+      }
+  } else {
+      Expand-Archive -Path $VSCodeArchivePath -DestinationPath $ExtractPath -Force
+  }
   
   if (-not (Get-VSCodeCommandPath)) { throw 'code.cmd was not found after extraction.' }
   Write-Host 'Standalone VS Code install completed.' -ForegroundColor Green
@@ -237,6 +248,11 @@ function Set-VSCodeAiHiddenSettings
   if (-not [string]::IsNullOrWhiteSpace([string]$PythonExeValue))
   {
     $SettingsToApply['python.defaultInterpreterPath'] = [string]$PythonExeValue
+    
+    # Hide other global Python environments
+    $SettingsToApply['python.locator'] = 'none' # Deprecated but sometimes respected
+    $SettingsToApply['python.experiments.optOutFrom'] = @('pythonDiscoveryModule')
+    $SettingsToApply['python.globalModuleSearchPaths'] = @()
   }
 
   foreach ($Key in $SettingsToApply.Keys)
@@ -339,7 +355,20 @@ function Install-VSCodeExtensions
   foreach ($Extension in Get-RequiredVSCodeExtensions)
   {
     Write-Host "Installing into contest profile: $Extension"
-    Invoke-NativeChecked -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--install-extension', $Extension, '--force')) | Out-Null
+    $InstallSuccess = $false
+    for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+        try {
+            Invoke-NativeChecked -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--install-extension', $Extension, '--force')) | Out-Null
+            $InstallSuccess = $true
+            break
+        } catch {
+            Write-Warning "Attempt $Attempt failed to install $Extension. Retrying in 2 seconds..."
+            Start-Sleep -Seconds 2
+        }
+    }
+    if (-not $InstallSuccess) {
+        Write-Warning "Failed to install $Extension after 3 attempts. Ignoring."
+    }
   }
 }
 

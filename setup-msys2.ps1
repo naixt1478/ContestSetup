@@ -93,14 +93,14 @@ Invoke-MsysBashChecked 'echo MSYS2 initialized'
 Install-Msys2CaCertificate
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Updating base packages (1/2)" -PercentComplete 30
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syuu' -ExplainMsysTlsErrors
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout --overwrite * -Syuu' -ExplainMsysTlsErrors
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Updating base packages (2/2)" -PercentComplete 50
-Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout -Syu' -ExplainMsysTlsErrors
+Invoke-MsysBashChecked 'pacman --noconfirm --disable-download-timeout --overwrite * -Syu' -ExplainMsysTlsErrors
 
 $MsysPackages = @('mingw-w64-ucrt-x86_64-gcc', 'mingw-w64-ucrt-x86_64-gdb')
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing GCC/GDB" -PercentComplete 70
-Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
+Invoke-MsysBashChecked ("pacman --needed --noconfirm --disable-download-timeout --overwrite * -S " + ($MsysPackages -join ' ')) -ExplainMsysTlsErrors
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Installing coreutils" -PercentComplete 90
 Ensure-MsysCatInstalled
