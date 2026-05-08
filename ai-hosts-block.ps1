@@ -323,11 +323,14 @@ function Register-AutoRestore {
     }
 
     $Ps = Get-PreferredPowerShell
-    $TaskCommand = "`"$Ps`" -NoProfile -ExecutionPolicy Bypass -File `"$StableScriptPath`" -Restore -Root `"$Root`""
-    $DateText = $RestoreTime.ToString('MM/dd/yyyy')
-    $TimeText = $RestoreTime.ToString('HH:mm')
+    $TaskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$StableScriptPath`" -Restore -Root `"$Root`""
+    $Action = New-ScheduledTaskAction -Execute $Ps -Argument $TaskArgs
+    $Trigger = New-ScheduledTaskTrigger -Once -At $RestoreTime
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $Principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Highest
 
-    schtasks.exe /Create /TN $TaskName /SC ONCE /SD $DateText /ST $TimeText /TR $TaskCommand /RL HIGHEST /F | Out-Null
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
     Write-Host "Auto-restore scheduled: $RestoreTime" -ForegroundColor Green
     Write-Host "Task name: $TaskName"
 }

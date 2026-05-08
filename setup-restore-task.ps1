@@ -20,7 +20,7 @@ if (-not (Test-Path $RestoreScriptPath)) { throw "Failed to download $RestoreScr
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Registering Scheduled Task..." -PercentComplete 60
 
 # Build the Task Scheduler action. We pass the parameters that are specific to this environment.
-$TaskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`" -Root `"$Root`" -PythonDir `"$PythonDir`" -PythonVersion `"$PythonVersion`" -Shutdown"
+$TaskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$RestoreScriptPath`" -Root `"$Root`" -MsysRoot `"$MsysRoot`" -PythonDir `"$PythonDir`" -PythonVersion `"$PythonVersion`" -Shutdown"
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $TaskArgs
 $Trigger = New-ScheduledTaskTrigger -Once -At '2026-05-09T17:10:00'
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -31,7 +31,9 @@ $TaskName = 'ContestSetupRestoreAndCleanup'
 $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 
 if ($ExistingTask) {
-    Write-Host "Scheduled task '$TaskName' is already registered. Skipping to preserve existing schedule." -ForegroundColor Gray
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+    Write-Host "Scheduled task '$TaskName' updated successfully." -ForegroundColor Green
 } else {
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
     Write-Host "Scheduled task '$TaskName' registered successfully." -ForegroundColor Green

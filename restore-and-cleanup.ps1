@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$Root = "$env:SystemDrive\CPTools",
+    [string]$MsysRoot = '',
     [string]$PythonDir = '',
     [string]$PythonVersion = '3.10.11',
     [switch]$Shutdown
@@ -38,16 +39,69 @@ try {
     [ConsoleConfig]::DisableQuickEdit()
 } catch {}
 
-# Critical Safety Check: Prevent deletion of system drives or critical folders
-$RootNormalized = [System.IO.Path]::GetFullPath($Root).TrimEnd('\/')
-$CriticalPaths = @(
-    [System.IO.Path]::GetFullPath($env:SystemDrive).TrimEnd('\/'),
-    [System.IO.Path]::GetFullPath($env:SystemRoot).TrimEnd('\/'),
-    [System.IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\/')
-)
-if ($CriticalPaths -contains $RootNormalized) {
-    throw "FATAL: Safe-guard triggered. Root directory ($Root) is a critical system path. Aborting cleanup to prevent data loss."
+function Get-NormalizedFullPath {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+    return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
 }
+
+function Assert-SafeRemovalPath {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Path,
+        [Parameter(Mandatory = $true)] [string]$Name
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "FATAL: $Name is empty. Aborting cleanup."
+    }
+
+    $Trimmed = $Path.Trim()
+    if (-not [System.IO.Path]::IsPathRooted($Trimmed)) {
+        throw "FATAL: $Name must be an absolute path. Aborting cleanup. Value: $Path"
+    }
+    if ($Trimmed -match '^[A-Za-z]:[\\/]*$') {
+        throw "FATAL: $Name points to a drive root. Aborting cleanup. Value: $Path"
+    }
+
+    $Normalized = Get-NormalizedFullPath -Path $Trimmed
+    $CriticalPaths = @(
+        (Get-NormalizedFullPath -Path ([System.IO.Path]::GetPathRoot($Normalized))),
+        (Get-NormalizedFullPath -Path $env:SystemRoot),
+        (Get-NormalizedFullPath -Path $env:USERPROFILE),
+        (Get-NormalizedFullPath -Path $env:ProgramData)
+    )
+    if ($env:ProgramFiles) { $CriticalPaths += (Get-NormalizedFullPath -Path $env:ProgramFiles) }
+    if (${env:ProgramFiles(x86)}) { $CriticalPaths += (Get-NormalizedFullPath -Path ${env:ProgramFiles(x86)}) }
+
+    if ($CriticalPaths -contains $Normalized) {
+        throw "FATAL: Safe-guard triggered. $Name ($Path) is a critical system path. Aborting cleanup."
+    }
+
+    return $Normalized
+}
+
+function Test-PathInside {
+    param([Parameter(Mandatory = $true)] [string]$ChildPath, [Parameter(Mandatory = $true)] [string]$ParentPath)
+    $Child = Get-NormalizedFullPath -Path $ChildPath
+    $Parent = Get-NormalizedFullPath -Path $ParentPath
+    $ParentPrefix = $Parent + '\'
+    return ($Child -ieq $Parent) -or $Child.StartsWith($ParentPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Stop-ProcessesUnderPath {
+    param([Parameter(Mandatory = $true)] [string]$Path, [Parameter(Mandatory = $true)] [string[]]$ProcessNames)
+    foreach ($ProcName in $ProcessNames) {
+        Get-Process -Name $ProcName -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                $_.Path -and (Test-PathInside -ChildPath $_.Path -ParentPath $Path)
+            } catch { $false }
+        } | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Critical Safety Check: Prevent deletion of system drives or critical folders
+$Root = Assert-SafeRemovalPath -Path $Root -Name 'Root'
+if ([string]::IsNullOrWhiteSpace($MsysRoot)) { $MsysRoot = Join-Path $Root 'msys64' }
+$MsysRoot = Assert-SafeRemovalPath -Path $MsysRoot -Name 'MsysRoot'
 
 # Auto-discover PythonDir if not provided
 if (-not $PythonDir) {
@@ -63,9 +117,6 @@ if (-not $PythonDir) {
     }
 }
 
-$PythonDirEscaped = $PythonDir -replace "'", "''"
-$PythonVersionEscaped = $PythonVersion -replace "'", "''"
-
 $ContestVSCodeRoot = Join-Path $Root 'vscode-contest'
 $ManifestPath = Join-Path $ContestVSCodeRoot 'shortcut-manifest.json'
 $ProgressActivity = 'Contest Environment Restore & Cleanup'
@@ -75,9 +126,9 @@ Write-Host '  Contest Environment Restore & Cleanup' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
 
-# ── Step 1/6: Restore VS Code Shortcuts ──
-Write-Progress -Activity $ProgressActivity -Status '[1/6] Restoring VS Code Shortcuts...' -PercentComplete 5
-Write-Host '[1/6] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
+# ── Step 1/7: Restore VS Code Shortcuts ──
+Write-Progress -Activity $ProgressActivity -Status '[1/7] Restoring VS Code Shortcuts...' -PercentComplete 5
+Write-Host '[1/7] Restoring VS Code Shortcuts...' -ForegroundColor Yellow
 if (Test-Path -LiteralPath $ManifestPath) {
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     foreach ($Item in $Manifest) {
@@ -96,9 +147,9 @@ if (Test-Path -LiteralPath $ManifestPath) {
     Write-Host '  No shortcut manifest found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 2/6: Restore PATH Environment Variable ──
-Write-Progress -Activity $ProgressActivity -Status '[2/6] Restoring PATH...' -PercentComplete 20
-Write-Host '[2/6] Restoring PATH Environment Variable...' -ForegroundColor Yellow
+# ── Step 2/7: Restore PATH Environment Variable ──
+Write-Progress -Activity $ProgressActivity -Status '[2/7] Restoring PATH...' -PercentComplete 20
+Write-Host '[2/7] Restoring PATH Environment Variable...' -ForegroundColor Yellow
 $BackupDir = Join-Path $Root 'backup'
 $PathSnapshots = Get-ChildItem -Path $BackupDir -Filter 'path-*' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTime -Descending
 if ($PathSnapshots) {
@@ -116,9 +167,9 @@ if ($PathSnapshots) {
     Write-Host '  No PATH backup found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 3/6: Restore AI Hosts Block ──
-Write-Progress -Activity $ProgressActivity -Status '[3/6] Restoring AI Hosts...' -PercentComplete 35
-Write-Host '[3/6] Restoring AI Hosts Block...' -ForegroundColor Yellow
+# ── Step 3/7: Restore AI Hosts Block ──
+Write-Progress -Activity $ProgressActivity -Status '[3/7] Restoring AI Hosts...' -PercentComplete 35
+Write-Host '[3/7] Restoring AI Hosts Block...' -ForegroundColor Yellow
 $AiScript = Join-Path $Root 'ai-hosts-block.ps1'
 if (Test-Path -LiteralPath $AiScript) {
     try {
@@ -137,9 +188,9 @@ if (Test-Path -LiteralPath $AiScript) {
     Write-Host '  No AI hosts script found. Skipping.' -ForegroundColor Gray
 }
 
-# ── Step 4/6: Uninstall Python ──
-Write-Progress -Activity $ProgressActivity -Status '[4/6] Uninstalling Python...' -PercentComplete 50
-Write-Host '[4/6] Uninstalling Python...' -ForegroundColor Yellow
+# ── Step 4/7: Uninstall Python ──
+Write-Progress -Activity $ProgressActivity -Status '[4/7] Uninstalling Python...' -PercentComplete 50
+Write-Host '[4/7] Uninstalling Python...' -ForegroundColor Yellow
 
 # Method 1: Try the cached MSI/EXE uninstaller via Windows Registry
 $PythonUninstalled = $false
@@ -210,16 +261,54 @@ if ($PythonUninstalled) {
     Write-Host '  Python was not found or already uninstalled.' -ForegroundColor Gray
 }
 
-# ── Step 5/6: Kill processes & Remove CPTools folder ──
-Write-Progress -Activity $ProgressActivity -Status '[5/6] Removing CPTools folder...' -PercentComplete 70
-Write-Host '[5/6] Removing CPTools folder...' -ForegroundColor Yellow
+# ── Step 5/7: Remove managed MSYS2 ──
+Write-Progress -Activity $ProgressActivity -Status '[5/7] Removing managed MSYS2...' -PercentComplete 62
+Write-Host '[5/7] Removing managed MSYS2...' -ForegroundColor Yellow
+
+$MsysMarkerPath = Join-Path $MsysRoot '.contestsetup-managed'
+if (Test-Path -LiteralPath $MsysMarkerPath) {
+    $MsysInstallMethod = ''
+    try {
+        $MsysMarker = Get-Content -LiteralPath $MsysMarkerPath -Raw | ConvertFrom-Json
+        $MsysInstallMethod = [string]$MsysMarker.InstallMethod
+    } catch {}
+
+    Stop-ProcessesUnderPath -Path $MsysRoot -ProcessNames @('bash', 'sh', 'pacman', 'g++', 'gcc', 'gdb', 'make', 'mingw32-make')
+
+    if ($MsysInstallMethod -eq 'winget' -and (Get-Command 'winget.exe' -ErrorAction SilentlyContinue)) {
+        try {
+            Start-Process -FilePath 'winget.exe' -ArgumentList @('uninstall', '--id', 'MSYS2.MSYS2', '--exact', '--silent') -Wait -PassThru -WindowStyle Hidden | Out-Null
+        } catch {
+            Write-Warning "  winget MSYS2 uninstall failed: $($_.Exception.Message)"
+        }
+    }
+
+    if (Test-Path -LiteralPath $MsysRoot) {
+        try {
+            Remove-Item -LiteralPath $MsysRoot -Recurse -Force -ErrorAction Stop
+            Write-Host "  Managed MSYS2 folder removed: $MsysRoot" -ForegroundColor Green
+        } catch {
+            Write-Warning "  Managed MSYS2 removal failed: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Host '  Managed MSYS2 folder was already removed.' -ForegroundColor Gray
+    }
+} elseif (Test-Path -LiteralPath $MsysRoot) {
+    if (Test-PathInside -ChildPath $MsysRoot -ParentPath $Root) {
+        Write-Host '  MSYS2 is inside the contest root and will be removed with CPTools.' -ForegroundColor Gray
+    } else {
+        Write-Host '  MSYS2 marker not found. Skipping external MSYS2 removal to avoid deleting a user installation.' -ForegroundColor Gray
+    }
+} else {
+    Write-Host '  MSYS2 was not found or already removed.' -ForegroundColor Gray
+}
+
+# ── Step 6/7: Kill processes & Remove CPTools folder ──
+Write-Progress -Activity $ProgressActivity -Status '[6/7] Removing CPTools folder...' -PercentComplete 75
+Write-Host '[6/7] Removing CPTools folder...' -ForegroundColor Yellow
 
 # Kill any VS Code or related processes that might lock files
-foreach ($ProcName in @('Code', 'Code - Insiders', 'node', 'python', 'python3', 'g++', 'gcc', 'gdb')) {
-    Get-Process -Name $ProcName -ErrorAction SilentlyContinue | Where-Object {
-        try { $_.Path -like "$Root*" } catch { $false }
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
-}
+Stop-ProcessesUnderPath -Path $Root -ProcessNames @('Code', 'Code - Insiders', 'node', 'python', 'python3', 'g++', 'gcc', 'gdb', 'bash', 'sh')
 Start-Sleep -Seconds 2
 
 # First, try a direct PowerShell removal (works if no file locks)
@@ -256,11 +345,12 @@ del "%~f0"
     Write-Host '  Deferred cleanup scheduled. CPTools will be removed shortly.' -ForegroundColor Green
 }
 
-# ── Step 6/6: Shutdown computer ──
-Write-Progress -Activity $ProgressActivity -Status '[6/6] Finalizing...' -PercentComplete 90
+# ── Step 7/7: Shutdown computer ──
+Write-Progress -Activity $ProgressActivity -Status '[7/7] Finalizing...' -PercentComplete 90
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host '  All contest environment cleanup completed!' -ForegroundColor Green
+Write-Progress -Activity $ProgressActivity -Completed
 
 if (-not $Shutdown) {
     Write-Host '  Shutdown was NOT requested. Exiting.' -ForegroundColor Yellow
@@ -268,7 +358,6 @@ if (-not $Shutdown) {
     Write-Host '  Computer will shut down in 30 seconds.' -ForegroundColor Red
     Write-Host '  Close this window to CANCEL shutdown.' -ForegroundColor Red
     Write-Host '============================================================' -ForegroundColor Cyan
-    Write-Progress -Activity $ProgressActivity -Completed
     Start-Sleep -Seconds 30
     Stop-Computer -Force
 }

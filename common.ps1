@@ -15,9 +15,21 @@ try
 catch {}
 
 # Base Paths (Can be overridden by variables from caller)
-if (-not $Root) { $Root = "$env:SystemDrive\CPTools" }
-if (-not $MsysRoot) { $MsysRoot = "$env:SystemDrive\msys64" }
-if (-not $PythonVersion) { $PythonVersion = '3.10.11' }
+function Get-ContestVariableValue
+{
+  param([Parameter(Mandatory = $true)] [string]$Name, [object]$DefaultValue = $null)
+  $Variable = Get-Variable -Name $Name -Scope 1 -ErrorAction SilentlyContinue
+  if ($null -eq $Variable) { return $DefaultValue }
+  $Value = $Variable.Value
+  if ($null -eq $Value) { return $DefaultValue }
+  if (($Value -is [string]) -and [string]::IsNullOrWhiteSpace($Value)) { return $DefaultValue }
+  return $Value
+}
+
+$Root = [string](Get-ContestVariableValue -Name 'Root' -DefaultValue "$env:SystemDrive\CPTools")
+$MsysRoot = [string](Get-ContestVariableValue -Name 'MsysRoot' -DefaultValue (Join-Path $Root 'msys64'))
+$PythonVersion = [string](Get-ContestVariableValue -Name 'PythonVersion' -DefaultValue '3.10.11')
+$SkipSignatureCheck = [bool](Get-ContestVariableValue -Name 'SkipSignatureCheck' -DefaultValue $false)
 
 $ToolBin = Join-Path $Root 'bin'
 $PathBin = Join-Path $Root 'path'
@@ -484,9 +496,7 @@ function Remove-ConflictingPathEntries
         $Normalized -eq $MsysRootNorm -or 
         $Normalized.StartsWith("$MsysRootNorm\") -or 
         $Normalized -eq $RootNorm -or 
-        $VSCodeBinNorms -contains $Normalized -or
-        $Normalized -match 'python' -or
-        $Normalized -match 'windowsapps'
+        $VSCodeBinNorms -contains $Normalized
     )
   }.GetNewClosure()
 

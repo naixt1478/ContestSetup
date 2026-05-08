@@ -1,9 +1,28 @@
 # setup-msys2.ps1
 
+$MsysManagedMarker = Join-Path $MsysRoot '.contestsetup-managed'
+
+function Write-Msys2ManagedMarker
+{
+  param([Parameter(Mandatory = $true)] [string]$InstallMethod)
+  $Marker = [ordered]@{
+    ManagedBy = 'ContestSetup'
+    CreatedAt = (Get-Date).ToString('o')
+    Root = $Root
+    MsysRoot = $MsysRoot
+    InstallMethod = $InstallMethod
+  }
+  Write-JsonUtf8NoBom -Path $MsysManagedMarker -InputObject $Marker -Depth 5
+}
+
 function Reset-MSYS2Completely
 {
   Write-Section 'Reset existing MSYS2'
-  Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
+  $SystemDefaultMsysRoot = "$env:SystemDrive\msys64"
+  if ((Normalize-PathForCompare $MsysRoot) -eq (Normalize-PathForCompare $SystemDefaultMsysRoot))
+  {
+    Uninstall-WingetPackageIfExists -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'
+  }
   if (Test-Path $MsysRoot)
   {
     Write-Host "Removing existing MSYS2 without backup as requested..."
@@ -203,10 +222,22 @@ if (Test-Path $MsysBash)
 else
 {
   Reset-MSYS2Completely
-  if (-not (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2')) { Install-MSYS2Direct }
+  $MsysInstallMethod = 'direct'
+  $SystemDefaultMsysRoot = "$env:SystemDrive\msys64"
+  $CanUseWingetForRequestedRoot = (Normalize-PathForCompare $MsysRoot) -eq (Normalize-PathForCompare $SystemDefaultMsysRoot)
+
+  if ($CanUseWingetForRequestedRoot -and (Install-ByWinget -Id 'MSYS2.MSYS2' -NameForLog 'MSYS2'))
+  {
+    $MsysInstallMethod = 'winget'
+  }
+  else
+  {
+    Install-MSYS2Direct
+  }
 
   $WaitCount = 0; while (-not (Test-Path $MsysBash) -and $WaitCount -lt 60) { Start-Sleep -Seconds 2; $WaitCount++ }
   if (-not (Test-Path $MsysBash)) { throw "MSYS2 bash.exe not found: $MsysBash" }
+  Write-Msys2ManagedMarker -InstallMethod $MsysInstallMethod
 }
 
 Write-Section 'Install MSYS2 packages'

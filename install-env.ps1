@@ -7,7 +7,7 @@ param(
   [switch]$NoPause,
   [switch]$SkipSignatureCheck,
   [string]$Root = "$env:SystemDrive\CPTools",
-  [string]$MsysRoot = "$env:SystemDrive\msys64",
+  [string]$MsysRoot = '',
   [string]$Msys2CaCertificatePath = '',
   [string]$PythonVersion = '3.10.11'
 )
@@ -16,7 +16,7 @@ $ErrorActionPreference = "Stop"
 
 # When run via irm|iex, param() is ignored. Ensure defaults are set.
 if ([string]::IsNullOrWhiteSpace($Root)) { $Root = "$env:SystemDrive\CPTools" }
-if ([string]::IsNullOrWhiteSpace($MsysRoot)) { $MsysRoot = "$env:SystemDrive\msys64" }
+if ([string]::IsNullOrWhiteSpace($MsysRoot)) { $MsysRoot = Join-Path $Root 'msys64' }
 if ([string]::IsNullOrWhiteSpace($Msys2CaCertificatePath)) { $Msys2CaCertificatePath = '' }
 if ([string]::IsNullOrWhiteSpace($PythonVersion)) { $PythonVersion = '3.10.11' }
 
@@ -305,7 +305,8 @@ catch
       } finally {
           $ProgressPreference = $OldProgressPref
       }
-      & ([scriptblock]::Create($RestoreScript)) -Root $Root -PythonDir $Global:PythonDir -PythonVersion $Global:PythonVersion
+      $RollbackPythonDir = if (Get-Variable -Name 'PythonDir' -ErrorAction SilentlyContinue) { $PythonDir } else { Join-Path $Root 'Python310' }
+      & ([scriptblock]::Create($RestoreScript)) -Root $Root -MsysRoot $MsysRoot -PythonDir $RollbackPythonDir -PythonVersion $PythonVersion
       Write-Host "Automatic rollback completed successfully." -ForegroundColor Green
   } catch {
       Write-Warning "Automatic rollback failed: $($_.Exception.Message)"
