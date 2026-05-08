@@ -240,7 +240,6 @@ function Set-VSCodeAiHiddenSettings
     'extensions.showRecommendationsOnlyOnDemand' = $true
     'extensions.autoCheckUpdates' = $false
     'extensions.autoUpdate' = $false
-    'locale' = 'ko' # Backup/deprecated but sometimes used as fallback
     'python.terminal.activateEnvironment' = $false
   }
 
@@ -262,6 +261,33 @@ function Set-VSCodeAiHiddenSettings
 
   Write-JsonUtf8NoBom -Path $SettingsPath -InputObject $Settings -Depth 30
   Write-Host "Contest VS Code settings applied: $SettingsPath" -ForegroundColor Green
+}
+
+function Set-VSCodeDisplayLanguageKorean
+{
+  Write-Section 'Set VS Code display language to Korean'
+
+  $SettingsPath = Get-ContestVSCodeSettingsPath
+  New-Item -ItemType Directory -Force -Path (Split-Path $SettingsPath -Parent) | Out-Null
+
+  $Settings = [pscustomobject]@{}
+  if (Test-Path -LiteralPath $SettingsPath)
+  {
+    try
+    {
+      $Raw = Get-Content -LiteralPath $SettingsPath -Raw
+      if ($Raw) { $Settings = $Raw | ConvertFrom-Json }
+    }
+    catch
+    {
+      Copy-Item -LiteralPath $SettingsPath -Destination "$SettingsPath.bak" -ErrorAction SilentlyContinue
+      $Settings = [pscustomobject]@{}
+    }
+  }
+
+  # Fallback for older VS Code builds; current VS Code primarily reads argv.json.
+  Set-ObjectProperty -Object $Settings -Name 'locale' -Value 'ko'
+  Write-JsonUtf8NoBom -Path $SettingsPath -InputObject $Settings -Depth 30
 
   # Set Korean locale via argv.json (VS Code reads locale from here primarily)
   $ArgvPath = Join-Path (Get-ContestVSCodeUserDataDir) 'argv.json'
@@ -278,7 +304,7 @@ function Set-VSCodeAiHiddenSettings
   
   # Ensure it's an object we can add properties to
   if ($null -eq $ArgvObj) { $ArgvObj = [pscustomobject]@{} }
-  
+
   Set-ObjectProperty -Object $ArgvObj -Name 'locale' -Value 'ko'
   Write-JsonUtf8NoBom -Path $ArgvPath -InputObject $ArgvObj -Depth 10
   Write-Host "VS Code locale set to Korean (ko) via $ArgvPath" -ForegroundColor Green
@@ -702,6 +728,7 @@ Remove-BlockedVSCodeExtensions
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Configuring Settings & Shortcuts..." -PercentComplete 60
 Set-VSCodeAiHiddenSettings
+Set-VSCodeDisplayLanguageKorean
 Set-ContestVSCodeShortcut
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status "Creating Wrappers..." -PercentComplete 75

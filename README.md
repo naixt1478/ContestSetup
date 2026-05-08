@@ -4,6 +4,7 @@
 
 ## 기능 요약
 - **독립된 VS Code 환경**: 사용자 설정 및 확장 프로그램이 기존 설정과 충돌하지 않는 완전 독립형(Portable) VS Code 자동 세팅
+- **VS Code 한국어 표시 언어 설정**: 한국어 언어팩을 설치하고 대회용 VS Code 프로필의 표시 언어를 한국어(`ko`)로 자동 설정
 - **MSYS2 (GCC/GDB) 및 Python 자동 설치**: 최신 UCRT64 기반 GCC 툴체인 및 Python 3.10 설치
 - **버전별 컴파일러 래퍼 제공**: `g++14`, `g++17`, `g++20`, `g++`, `gcc`, `gdb`, `python3`, `cat` 등 대회 필수 명령어 자동 구성
 - **AI 호스트 차단 (치팅 방지)**: ChatGPT, Copilot, Claude 등 주요 AI 서비스 접속을 Windows `hosts` 수준에서 원천 차단
@@ -24,7 +25,7 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/install-env.ps
 ```
 
 ### 설치가 진행되면?
-- 화면 상단에 1단계부터 7단계까지 진행 상태 표시줄(Progress Bar)이 나타나며, VS Code, MSYS2, Python, 컴파일러 래퍼, AI 호스트 차단, 그리고 마지막으로 **자동 복구 스케줄러 등록**까지 사람의 개입 없이 한 번에 쭉 진행됩니다.
+- 화면 상단에 1단계부터 7단계까지 진행 상태 표시줄(Progress Bar)이 나타나며, VS Code, VS Code 한국어 표시 언어 설정, MSYS2, Python, 컴파일러 래퍼, AI 호스트 차단, 그리고 마지막으로 **자동 복구 스케줄러 등록**까지 사람의 개입 없이 한 번에 쭉 진행됩니다.
 - 설치가 성공적으로 완료되면, 변경된 환경 변수를 적용하기 위해 **명령 프롬프트(또는 PowerShell)를 껐다 켜 주시기 바랍니다**.
 
 ---
