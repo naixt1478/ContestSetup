@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-parse:
+    name: Windows - PowerShell 5.1 & 7 syntax + test suite
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      # Keep LF endings so the encoding/LF compliance tests see the committed bytes.
+      - name: Disable CRLF conversion
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Parse all .ps1 with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "PSVersion: $($PSVersionTable.PSVersion)"
+          $files = @(Get-ChildItem -Path . -Filter *.ps1 -Recurse -File)
+          if ($files.Count -eq 0) { throw 'No .ps1 files found' }
+          $failed = 0
+          foreach ($file in $files) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors -and $errors.Count -gt 0) {
+              $failed++
+              foreach ($e in $errors) {
+                Write-Host "::error file=$($file.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+              }
+            } else {
+              Write-Host "OK  $($file.Name)"
+            }
+          }
+          if ($failed -gt 0) { throw "$failed file(s) failed to parse under PowerShell $($PSVersionTable.PSVersion)" }
+
+      - name: Parse all .ps1 with PowerShell 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "PSVersion: $($PSVersionTable.PSVersion)"
+          $files = @(Get-ChildItem -Path . -Filter *.ps1 -Recurse -File)
+          if ($files.Count -eq 0) { throw 'No .ps1 files found' }
+          $failed = 0
+          foreach ($file in $files) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors -and $errors.Count -gt 0) {
+              $failed++
+              foreach ($e in $errors) {
+                Write-Host "::error file=$($file.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+              }
+            } else {
+              Write-Host "OK  $($file.Name)"
+            }
+          }
+          if ($failed -gt 0) { throw "$failed file(s) failed to parse under PowerShell $($PSVersionTable.PSVersion)" }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The suite is developed and gated on Linux (see the ubuntu job); on Windows it is
+      # advisory until a green run confirms that every tier is path/encoding-portable.
+      - name: Run test suite (advisory on Windows)
+        continue-on-error: true
+        shell: pwsh
+        run: python -B tests/run_tests.py --tier all --strict
+
+  ubuntu-tests:
+    name: Ubuntu - full test suite (with pwsh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show pwsh version
+        run: pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+
+      - name: Run all tiers (skips are failures)
+        run: python3 -B tests/run_tests.py --tier all --strict
