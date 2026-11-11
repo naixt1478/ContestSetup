@@ -1,0 +1,19 @@
+# Python bytecode & test caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Agent metadata workspace
+.agents/
+
+# Temporary & backup artifacts
+*.tmp
+*.bak
+*.orig
+*.contest-bak
+*.contest-orig
+
+# OS metadata
+.DS_Store
+Thumbs.db
