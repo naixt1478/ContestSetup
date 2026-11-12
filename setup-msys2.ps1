@@ -393,11 +393,11 @@ function Invoke-PacmanChecked
     if ($IsNetworkError)
     {
       $PkgCacheDir = Join-Path $MsysRoot 'var\cache\pacman\pkg'
-      $CachedArchives = if (Test-Path -LiteralPath $PkgCacheDir) { @(Get-ChildItem -Path $PkgCacheDir -Filter '*.pkg.tar.*' -File -ErrorAction SilentlyContinue) } else { @() }
+      $CachedArchives = if (Test-Path -LiteralPath $PkgCacheDir) { @(Get-ChildItem -Path $PkgCacheDir -Filter '*.pkg.tar.*' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.sig' }) } else { @() }
       if ($CachedArchives.Count -gt 0 -and ($Arguments -match 'mingw-w64-ucrt-x86_64-gcc'))
       {
         Write-Warning 'Network mirrors unreachable; attempting offline installation from seeded pacman package cache...'
-        $OfflineRes = Invoke-MsysBashOutput "pacman --noconfirm --needed --overwrite '*' -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb coreutils || pacman --noconfirm --needed --overwrite '*' -U /var/cache/pacman/pkg/*.pkg.tar.*"
+        $OfflineRes = Invoke-MsysBashOutput 'pacman --noconfirm --needed --overwrite ''*'' -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb coreutils || (shopt -s nullglob; IFS=$''\n''; pkgs=(/var/cache/pacman/pkg/*.pkg.tar.zst /var/cache/pacman/pkg/*.pkg.tar.xz); [ ${#pkgs[@]} -gt 0 ] && pacman --noconfirm --needed --overwrite ''*'' -U ${pkgs[@]})'
         if ($OfflineRes.ExitCode -eq 0) { return }
       }
     }
@@ -523,7 +523,7 @@ else
     if (($OfflineCachedRes.ExitCode -ne 0) -or (-not (Test-Msys2RequiredBinariesExist)))
     {
       Remove-StaleMsys2Locks
-      $OfflineLocalRes = Invoke-MsysBashOutput "pacman --noconfirm --needed --overwrite '*' -U /var/cache/pacman/pkg/*.pkg.tar.*"
+      $OfflineLocalRes = Invoke-MsysBashOutput 'shopt -s nullglob; IFS=$''\n''; pkgs=(/var/cache/pacman/pkg/*.pkg.tar.zst /var/cache/pacman/pkg/*.pkg.tar.xz); [ ${#pkgs[@]} -gt 0 ] && pacman --noconfirm --needed --overwrite ''*'' -U ${pkgs[@]}'
       if ($OfflineLocalRes.ExitCode -eq 0 -and (Test-Msys2RequiredBinariesExist))
       {
         $OfflineCacheInstallSucceeded = $true

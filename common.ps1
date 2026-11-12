@@ -83,6 +83,11 @@ function Normalize-ContestDirectoryPath
 }
 
 $ContestSetupVersion = '2.0.0'
+$RawBase = ([string](Get-ContestVariableValue -Name 'RawBase' -DefaultValue 'https://raw.githubusercontent.com/naixt1478/ContestSetup/main' -EnvVar 'CONTEST_RAW_BASE')).TrimEnd('/')
+if ($null -eq (Get-Variable -Scope Global -Name 'ProgressIdOuter' -ErrorAction SilentlyContinue)) { $Global:ProgressIdOuter = 0 }
+if ($null -eq (Get-Variable -Scope Global -Name 'ProgressIdInner' -ErrorAction SilentlyContinue)) { $Global:ProgressIdInner = 1 }
+if ($null -eq (Get-Variable -Scope Global -Name 'SetupStepCurrent' -ErrorAction SilentlyContinue)) { $Global:SetupStepCurrent = 1 }
+if ($null -eq (Get-Variable -Scope Global -Name 'SetupStepTotal' -ErrorAction SilentlyContinue)) { $Global:SetupStepTotal = 1 }
 $Mode = [string](Get-ContestVariableValue -Name 'Mode' -DefaultValue 'Install' -EnvVar 'CONTEST_MODE')
 $ExamStart = [string](Get-ContestVariableValue -Name 'ExamStart' -DefaultValue '2026-11-23T19:00:00' -EnvVar 'CONTEST_EXAM_START')
 $ExamEnd = [string](Get-ContestVariableValue -Name 'ExamEnd' -DefaultValue '2026-11-23T20:30:00' -EnvVar 'CONTEST_EXAM_END')

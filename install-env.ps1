@@ -718,7 +718,7 @@ try
       foreach ($PkgFile in @(Get-ChildItem -Path $PacmanPkgCache -Filter '*.pkg.tar.*' -File -ErrorAction SilentlyContinue))
       {
         Copy-Item -LiteralPath $PkgFile.FullName -Destination (Join-Path $ExportPkgDir $PkgFile.Name) -Force
-        $ExportedPkgCount++
+        if ($PkgFile.Name -notlike '*.sig') { $ExportedPkgCount++ }
       }
     }
     $PacmanSyncCache = Join-Path $MsysRoot 'var\lib\pacman\sync'

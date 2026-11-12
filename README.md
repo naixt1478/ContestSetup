@@ -173,7 +173,7 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore-and-cl
 
 ## 🧪 개발자용: 테스트 및 CI
 
-저장소에는 스크립트 수정 시 회귀를 잡기 위한 Python 기반 5-Tier 검증 스위트(`tests/run_tests.py`, 283개 테스트)가 포함되어 있습니다. 세부 구성은 `TEST_INFRA.md`, 설계 배경은 `ARCHITECTURE_V2.md`, 변경 이력은 `CHANGELOG.md`를 참고하세요.
+저장소에는 스크립트 수정 시 회귀를 잡기 위한 Python 기반 5-Tier 검증 스위트(`tests/run_tests.py`, 284개 테스트)가 포함되어 있습니다. 세부 구성은 `TEST_INFRA.md`, 설계 배경은 `ARCHITECTURE_V2.md`, 변경 이력은 `CHANGELOG.md`를 참고하세요.
 
 ```bash
 # 저장소 루트에서 전체 실행 (Python 3.8+, __pycache__ 미생성)
@@ -182,10 +182,10 @@ python3 -B tests/run_tests.py --tier all
 # 특정 Tier만 실행 (1~5), 개별 결과 출력
 python3 -B tests/run_tests.py --tier 5 --verbose
 
-# CI 모드: pwsh가 없어 실엔진 회귀 테스트(T5_33)를 건너뛰면 실패로 처리
+# CI 모드: pwsh가 없어 실엔진 회귀 테스트(T5_33, T5_34)를 건너뛰면 실패로 처리
 python3 -B tests/run_tests.py --tier all --strict
 ```
 
 - 대부분의 테스트는 `.ps1` 소스의 정적 구조·계약 검사와 Python 동작 모델로 수행되며 Windows가 필요하지 않습니다.
-- `T5_33`은 PowerShell 7(`pwsh`)로 `common.ps1`을 최상위 `irm | iex` 방식으로 실제 로드하여 `Get-ContestVariableValue`의 얕은 스코프 회귀를 검증합니다. `pwsh`는 `CONTEST_PWSH` 환경 변수 → `PATH` → `~/.local/pwsh/pwsh` 순서로 탐색하며, 찾지 못하면 `SKIP`으로 표시됩니다.
-- GitHub Actions(`.github/workflows/ci.yml`)는 `windows-latest`에서 모든 `.ps1`을 Windows PowerShell 5.1과 PowerShell 7 파서로 구문 검사하고, Ubuntu(`pwsh` 포함)에서 전체 테스트를 `--strict`로 실행합니다 (Windows 테스트 실행은 참고용).
+- `T5_33`과 `T5_34`는 PowerShell 7(`pwsh`)로 `common.ps1` 최상위 `irm | iex` 얕은 스코프 회귀, 단독 모듈 dot-source `StrictMode 2.0` 기본값, 오프라인 `pacman -U` `.sig` 제외 및 12개 전체 `.ps1`의 AST·PS 5.1 구문/스위치 바인딩을 실제 검증합니다. `pwsh`는 `CONTEST_PWSH` 환경 변수 → `PATH` → `~/.local/pwsh/pwsh` 순서로 탐색하며, 찾지 못하면 `SKIP`으로 표시됩니다.
+- GitHub Actions(`.github/workflows/ci.yml`)는 `windows-latest`에서 모든 `.ps1`을 Windows PowerShell 5.1과 PowerShell 7 파서로 구문 검사하고, `windows-latest`와 `ubuntu-latest` 양쪽 모두에서 전체 테스트를 `--strict` 필수 게이트로 실행합니다.

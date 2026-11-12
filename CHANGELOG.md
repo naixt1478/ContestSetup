@@ -8,7 +8,7 @@ Issue IDs (`S-xx` stability, `O-x` optimization) refer to the tables in `ARCHITE
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-11-11
+## [2.0.0] - 2026-11-12
 
 Release prepared for the exam on **Monday, 2026-11-23, 19:00-20:30 KST**.
 
@@ -23,9 +23,9 @@ Release prepared for the exam on **Monday, 2026-11-23, 19:00-20:30 KST**.
 - Browser DNS-over-HTTPS and built-in AI policy lockdown (Chrome, Edge, Whale, Brave, Firefox) with reversible HKLM backup; expanded 2025-2026 / Korean AI domain blocklist over IPv4, IPv6 and `www.` (S-11, S-27).
 - `Expand-ArchiveFast`: `System32\tar.exe` -> `ZipFile` -> silent `Expand-Archive` (O8).
 - `ARCHITECTURE_V2.md` (design analysis), `PROJECT.md` (feature inventory and contracts), `TEST_INFRA.md` (test architecture), this `CHANGELOG.md`.
-- `tests/run_tests.py`: 283-test, 5-tier verification suite (feature coverage, boundary cases, cross-feature contracts, end-to-end scenarios, adversarial/mutation hardening), with `--tier`, `--verbose`, `--json` and `--strict`.
-- Live `pwsh` regression test `T5_33` for the `Get-ContestVariableValue` shallow-scope fix; reported as SKIP when `pwsh` is unavailable (FAIL under `--strict`).
-- GitHub Actions workflow `.github/workflows/ci.yml`: Windows PowerShell 5.1 + PowerShell 7 AST parse of every `.ps1` on `windows-latest`, and the full test suite on Windows and Ubuntu.
+- `tests/run_tests.py`: 284-test, 5-tier verification suite (feature coverage, boundary cases, cross-feature contracts, end-to-end scenarios, adversarial/mutation hardening), with `--tier`, `--verbose`, `--json` and `--strict`.
+- Live `pwsh` regression tests `T5_33` (`Get-ContestVariableValue` shallow-scope fix) and `T5_34` (12-script AST / PS 5.1 syntax & switch-binding audit, standalone `StrictMode` dot-source defaults, and offline `pacman -U` `.sig` exclusion); reported as SKIP when `pwsh` is unavailable (FAIL under `--strict`).
+- GitHub Actions workflow `.github/workflows/ci.yml`: Windows PowerShell 5.1 + PowerShell 7 AST parse of every `.ps1` on `windows-latest`, and the full `--strict` test suite gated on both Windows and Ubuntu.
 - `.gitignore` for Python caches, temporary/backup artifacts and agent workspace metadata.
 
 ### Changed
@@ -54,6 +54,7 @@ Release prepared for the exam on **Monday, 2026-11-23, 19:00-20:30 KST**.
 - Single-element JSON arrays unwrapped by PS 5.1 (S-18).
 - `CONTEST_*` string environment overrides ignored because of `param()` defaults; `-Mode Verify` failure removing the active AI `hosts` block and exiting with code 0 (S-21).
 - `Get-ContestVariableValue` crashing with `ArgumentOutOfRange` when `common.ps1` is loaded at the top level (`irm | iex` or dot-sourced from the prompt), because `Get-Variable -Scope 2` exceeds the call stack and is not suppressible with `-ErrorAction`.
+- Standalone `setup-*.ps1` dot-sourcing after `common.ps1` throwing `VariableIsUndefined` under `StrictMode 2.0` when `$RawBase` or `$Global:SetupStepCurrent`/`Total`/`ProgressIdOuter`/`Inner` were unset outside `install-env.ps1`; air-gapped MSYS2 `pacman -U` fallback aborting on detached `*.pkg.tar.zst.sig` signature files and `ExportCache` double-counting `.sig` files in `Msys2PackagesCount`.
 
 ## [1.x] - before 2026-11
 

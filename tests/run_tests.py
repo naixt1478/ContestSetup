@@ -2242,7 +2242,7 @@ def build_test_suite() -> List[TestCase]:
         body = ps.extract_function_body("setup-msys2.ps1", "Invoke-PacmanChecked")
         assert "if ($IsTlsError -and (-not $Script:MsysRootCertsSynced))" in body
         assert "Sync-WindowsRootCertificatesToMsys2" in body
-        assert "if ($IsNetworkError)" in body and "/var/cache/pacman/pkg/*.pkg.tar.*" in body
+        assert "if ($IsNetworkError)" in body and "/var/cache/pacman/pkg/*.pkg.tar.zst" in body
 
     # --- F7 Boundary Cases ---
     @register("T2_F7_01", 2, "F7", "setup-python.ps1 resets broken/partial $PythonDir when python.exe is missing or fails stdlib check")
@@ -4096,8 +4096,9 @@ def build_test_suite() -> List[TestCase]:
         syncfirst_pos = msys_code.find("if (-not (Test-Msys2RequiredBinariesExist))")
         stage2_pos = msys_code.rfind("Invoke-PacmanChecked '--needed -Syu mingw-w64-ucrt-x86_64-gcc")
         assert -1 < stage1_pos < syncfirst_pos < stage2_pos
-        # 3) Offline package archive fallback when network is unreachable
-        assert "pacman --noconfirm --needed --overwrite '*' -U /var/cache/pacman/pkg/*.pkg.tar.*" in pac_body
+        # 3) Offline package archive fallback when network is unreachable (excluding .sig detached signatures & PS 5.1 Legacy inner double quotes)
+        assert 'pkgs=(/var/cache/pacman/pkg/*.pkg.tar.zst /var/cache/pacman/pkg/*.pkg.tar.xz)' in pac_body
+        assert "pacman --noconfirm --needed --overwrite ''*'' -U ${pkgs[@]}" in pac_body
 
     @register("T5_19", 5, "F16+F23", "Adversarial restore-and-cleanup.ps1 TEMP self-relocation fork-bomb prevention (-ReinvokedFromTemp)")
     def _():
@@ -4436,7 +4437,7 @@ def build_test_suite() -> List[TestCase]:
                 env = dict(os.environ, CS_REGRESSION_COMMON=str(src))
                 return subprocess.run(
                     [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", probe],
-                    capture_output=True, text=True, timeout=180, env=env,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, env=env,
                 )
 
         fixed = run_probe(common_code)
@@ -4447,6 +4448,204 @@ def build_test_suite() -> List[TestCase]:
         assert broken.returncode != 0 and "RESULT:" not in broken.stdout, (
             "pre-fix (unguarded Get-Variable -Scope 2) variant unexpectedly succeeded; probe no longer reproduces the shallow-scope bug"
         )
+
+    @register("T5_34", 5, "F18+F21+F6", "Live pwsh 12-script AST/PS5.1/switch audit + C-1 StrictMode standalone dot-source & C-2 offline pacman -U .sig exclusion regressions")
+    def _():
+        # Static C-1 & C-2 checks first
+        common_code = ps.read_active_code("common.ps1")
+        assert "$RawBase = ([string](Get-ContestVariableValue -Name 'RawBase'" in common_code
+        for gname in ("ProgressIdOuter", "ProgressIdInner", "SetupStepCurrent", "SetupStepTotal"):
+            assert f"Get-Variable -Scope Global -Name '{gname}'" in common_code, f"common.ps1 missing StrictMode default guard for $Global:{gname}"
+
+        msys_code = ps.read_active_code("setup-msys2.ps1")
+        assert "-U /var/cache/pacman/pkg/*.pkg.tar.*" not in msys_code, (
+            "pacman -U must not glob *.pkg.tar.* directly because *.pkg.tar.zst.sig signature files abort pacman -U"
+        )
+        assert msys_code.count('pkgs=(/var/cache/pacman/pkg/*.pkg.tar.zst /var/cache/pacman/pkg/*.pkg.tar.xz)') >= 2
+        assert msys_code.count("IFS=$''\\n''") >= 2
+        assert "Where-Object { $_.Name -notlike '*.sig' }" in msys_code
+
+        install_code = ps.read_active_code("install-env.ps1")
+        assert "if ($PkgFile.Name -notlike '*.sig') { $ExportedPkgCount++ }" in install_code
+
+        pwsh = find_pwsh()
+        if pwsh is None:
+            raise TestSkipped("live AST & StrictMode check needs pwsh (set CONTEST_PWSH or put pwsh on PATH); static C-1/C-2 checks passed")
+
+        audit_script = r"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+
+$repo = $env:CS_REPO_ROOT
+$files = $env:CS_PS1_LIST -split ';'
+$astMap = @{}
+$scriptSwitches = @{}
+$funcSwitches = @{}
+
+foreach ($f in $files) {
+    $full = Join-Path $repo $f
+    $tokens = $null
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($full, [ref]$tokens, [ref]$errors)
+    if ($errors.Count -gt 0) {
+        throw "AST parse error in ${f}: $($errors[0].Message)"
+    }
+    $astMap[$f] = $ast
+
+    $ps7Nodes = $ast.FindAll({
+        param($n)
+        $n.GetType().Name -in @(
+            'TernaryExpressionAst', 'PipelineChainAst', 'NullCoalescingExpressionAst',
+            'NullConditionalExpressionAst', 'NullConditionalMemberExpressionAst', 'NullConditionalIndexExpressionAst'
+        )
+    }, $true)
+    if ($ps7Nodes.Count -gt 0) {
+        throw "PS 7-only syntax in ${f}:$($ps7Nodes[0].Extent.StartLineNumber): $($ps7Nodes[0].Extent.Text)"
+    }
+    $nullCondMembers = $ast.FindAll({
+        param($n)
+        ($n -is [System.Management.Automation.Language.MemberExpressionAst]) -and
+        $n.PSObject.Properties['NullConditional'] -and $n.NullConditional
+    }, $true)
+    if ($nullCondMembers.Count -gt 0) {
+        throw "PS 7-only ?. member access in ${f}:$($nullCondMembers[0].Extent.StartLineNumber)"
+    }
+
+    $sw = @()
+    if ($null -ne $ast.ParamBlock) {
+        foreach ($p in $ast.ParamBlock.Parameters) {
+            foreach ($a in $p.Attributes) {
+                if (($a -is [System.Management.Automation.Language.TypeConstraintAst]) -and ($a.TypeName.FullName -match '^(?i)switch(parameter)?$')) {
+                    $sw += $p.Name.VariablePath.UserPath
+                }
+            }
+        }
+    }
+    $scriptSwitches[$f] = $sw
+
+    $fns = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+    foreach ($fn in $fns) {
+        $fsw = @()
+        if ($null -ne $fn.Body.ParamBlock) {
+            foreach ($p in $fn.Body.ParamBlock.Parameters) {
+                foreach ($a in $p.Attributes) {
+                    if (($a -is [System.Management.Automation.Language.TypeConstraintAst]) -and ($a.TypeName.FullName -match '^(?i)switch(parameter)?$')) {
+                        $fsw += $p.Name.VariablePath.UserPath
+                    }
+                }
+            }
+        }
+        if ($funcSwitches.ContainsKey($fn.Name)) {
+            $funcSwitches[$fn.Name] = @($funcSwitches[$fn.Name] + $fsw | Select-Object -Unique)
+        } else {
+            $funcSwitches[$fn.Name] = $fsw
+        }
+    }
+}
+
+foreach ($f in $files) {
+    $cmds = $astMap[$f].FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+    foreach ($cmd in $cmds) {
+        $cName = $cmd.GetCommandName()
+        if ([string]::IsNullOrWhiteSpace($cName)) { continue }
+        $elems = $cmd.CommandElements
+        for ($i = 1; $i -lt $elems.Count; $i++) {
+            $el = $elems[$i]
+            if (($el -is [System.Management.Automation.Language.CommandParameterAst]) -and ($null -eq $el.Argument) -and (($i + 1) -lt $elems.Count)) {
+                $nxt = $elems[$i + 1]
+                if (-not ($nxt -is [System.Management.Automation.Language.CommandParameterAst])) {
+                    $pName = $el.ParameterName
+                    $leaf = Split-Path -Path $cName -Leaf -ErrorAction SilentlyContinue
+                    $known = ($null -ne $leaf -and $scriptSwitches.ContainsKey($leaf) -and ($scriptSwitches[$leaf] -contains $pName)) -or
+                             ($funcSwitches.ContainsKey($cName) -and ($funcSwitches[$cName] -contains $pName))
+                    if ($known) {
+                        throw "PS 5.1 space-separated switch binding in ${f}:$($el.Extent.StartLineNumber): $cName -$pName $($nxt.Extent.Text)"
+                    }
+                }
+            }
+        }
+    }
+}
+
+# C-2 PS 5.1 Legacy native argument passing check: no Invoke-MsysBash* string argument in setup-msys2.ps1 may contain raw '"'
+$msysCmds = $astMap['setup-msys2.ps1'].FindAll({
+    param($n)
+    ($n -is [System.Management.Automation.Language.CommandAst]) -and
+    ($n.GetCommandName() -in @('Invoke-MsysBashOutput', 'Invoke-MsysBashChecked'))
+}, $true)
+if ($msysCmds.Count -lt 6) {
+    throw "Expected at least 6 Invoke-MsysBash* call sites in setup-msys2.ps1, found $($msysCmds.Count)"
+}
+foreach ($mc in $msysCmds) {
+    foreach ($ce in ($mc.CommandElements | Select-Object -Skip 1)) {
+        if ($ce -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+            if ($ce.Value.Contains('"')) {
+                throw "PS 5.1 Legacy quote-stripping hazard at setup-msys2.ps1:$($ce.Extent.StartLineNumber): raw double-quote inside Invoke-MsysBash* command string"
+            }
+        } elseif ($ce -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
+            if ($ce.Value.Contains('"')) {
+                throw "PS 5.1 Legacy quote-stripping hazard at setup-msys2.ps1:$($ce.Extent.StartLineNumber): raw double-quote inside expandable Invoke-MsysBash* command string"
+            }
+        }
+    }
+}
+
+# Live Legacy native argument passing check against bash if available (Linux/macOS or Git/MSYS bash)
+if (Test-Path -LiteralPath '/bin/bash') {
+    $oldPassing = $PSNativeCommandArgumentPassing
+    $legTmp = Join-Path ([IO.Path]::GetTempPath()) ('cs_t5_34_leg_' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $legTmp | Out-Null
+    try {
+        $PSNativeCommandArgumentPassing = 'Legacy'
+        Set-Content -LiteralPath (Join-Path $legTmp 'decoy file.txt') -Value 'decoy'
+        Set-Content -LiteralPath (Join-Path $legTmp 'gcc-14-any.pkg.tar.zst') -Value 'pkg1'
+        Set-Content -LiteralPath (Join-Path $legTmp 'coreutils-9-any.pkg.tar.xz') -Value 'pkg2'
+        Set-Content -LiteralPath (Join-Path $legTmp 'gcc-14-any.pkg.tar.zst.sig') -Value 'sig'
+        Push-Location $legTmp
+        $bashSnippet = ('shopt -s nullglob; IFS=$''\n''; pkgs=({0}/*.pkg.tar.zst {0}/*.pkg.tar.xz); [ ${{#pkgs[@]}} -gt 0 ] && printf ''%s\n'' --noconfirm --needed --overwrite ''*'' -U ${{pkgs[@]}}' -f $legTmp)
+        $bashArgs = @('-lc', $bashSnippet)
+        $bashOut = @(& /bin/bash @bashArgs)
+        $joined = ($bashOut -join '|')
+        if ($joined -notmatch '\-\-overwrite\|\*\|-U\|.*gcc-14-any\.pkg\.tar\.zst\|.*coreutils-9-any\.pkg\.tar\.xz$' -or $joined -match '\.sig' -or $joined -match 'decoy') {
+            throw "Legacy argument passing probe failed: $joined"
+        }
+    } finally {
+        Pop-Location -ErrorAction SilentlyContinue
+        $PSNativeCommandArgumentPassing = $oldPassing
+        Remove-Item -LiteralPath $legTmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# C-1 live StrictMode 2.0 standalone dot-source check (unset globals + $RawBase)
+Remove-Variable -Scope Global -Name ProgressIdOuter, ProgressIdInner, SetupStepCurrent, SetupStepTotal -ErrorAction SilentlyContinue
+Remove-Variable -Name RawBase -ErrorAction SilentlyContinue
+. (Join-Path $repo 'common.ps1')
+$banner = "[$Global:SetupStepCurrent/$Global:SetupStepTotal] $Global:ProgressIdOuter->$Global:ProgressIdInner $RawBase/ai-hosts-block.ps1"
+
+# Verify caller-preset $RawBase & $Global:SetupStepCurrent are preserved when common.ps1 is dot-sourced
+$RawBase = 'https://mirror.example.internal/ContestSetup/main/'
+$Global:SetupStepCurrent = 5
+$Global:SetupStepTotal = 8
+. (Join-Path $repo 'common.ps1')
+Write-Output ("AST_OK:{0}|DEFAULT:{1}|OVERRIDE:{2}/{3}|{4}" -f $files.Count, $banner, $Global:SetupStepCurrent, $Global:SetupStepTotal, $RawBase)
+"""
+        with tempfile.TemporaryDirectory(prefix="cs_t5_34_") as tmp:
+            probe_file = Path(tmp) / "t5_34_audit.ps1"
+            probe_file.write_text(audit_script, encoding="utf-8")
+            env = dict(
+                os.environ,
+                CS_REPO_ROOT=str(REPO_ROOT),
+                CS_PS1_LIST=";".join(PS1_FILES),
+            )
+            res = subprocess.run(
+                [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(probe_file)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, env=env,
+            )
+            assert res.returncode == 0, f"T5_34 pwsh audit failed (rc={res.returncode}): {res.stderr.strip()[-600:]}\n{res.stdout.strip()[-600:]}"
+            assert (
+                "AST_OK:12|DEFAULT:[1/1] 0->1 https://raw.githubusercontent.com/naixt1478/ContestSetup/main/ai-hosts-block.ps1"
+                "|OVERRIDE:5/8|https://mirror.example.internal/ContestSetup/main"
+            ) in res.stdout, f"unexpected T5_34 output: {res.stdout.strip()[-600:]}"
 
     return tests
 
