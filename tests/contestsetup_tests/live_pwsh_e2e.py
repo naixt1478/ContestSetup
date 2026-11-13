@@ -206,14 +206,16 @@ if ([System.Environment]::OSVersion.Platform -eq 'Win32NT') {
         Copy-Item -LiteralPath $stubExe -Destination $destBin -Force
     }
 } else {
-    $gdbStub = Join-Path $Root 'gdb_stub.sh'
-    Write-TextUtf8NoBom -Path $gdbStub -Content "#!/bin/sh`necho 'GNU gdb (ContestSetup E2E) 14.2'`nexit 0`n"
-    Copy-Item -LiteralPath (Get-Command g++ -ErrorAction Stop).Source -Destination (Join-Path $UcrtBin 'g++.exe') -Force
-    Copy-Item -LiteralPath (Get-Command gcc -ErrorAction Stop).Source -Destination (Join-Path $UcrtBin 'gcc.exe') -Force
-    Copy-Item -LiteralPath $gdbStub -Destination (Join-Path $UcrtBin 'gdb.exe') -Force
-    Copy-Item -LiteralPath (Get-Command cat -ErrorAction Stop).Source -Destination $MsysCat -Force
-    Copy-Item -LiteralPath (Get-Command python3 -ErrorAction Stop).Source -Destination $PythonExe -Force
-    Copy-Item -LiteralPath (Get-Command python3 -ErrorAction Stop).Source -Destination $Python3Exe -Force
+    $hostGpp = (Get-Command g++ -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $hostGcc = (Get-Command gcc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $hostCat = (Get-Command cat -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $hostPy3 = (Get-Command python3 -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    Write-TextUtf8NoBom -Path (Join-Path $UcrtBin 'g++.exe') -Content "#!/bin/sh`nexec `"$hostGpp`" `"`$@`"`n"
+    Write-TextUtf8NoBom -Path (Join-Path $UcrtBin 'gcc.exe') -Content "#!/bin/sh`nexec `"$hostGcc`" `"`$@`"`n"
+    Write-TextUtf8NoBom -Path (Join-Path $UcrtBin 'gdb.exe') -Content "#!/bin/sh`necho 'GNU gdb (ContestSetup E2E) 14.2'`nexit 0`n"
+    Write-TextUtf8NoBom -Path $MsysCat -Content "#!/bin/sh`nexec `"$hostCat`" `"`$@`"`n"
+    Write-TextUtf8NoBom -Path $PythonExe -Content "#!/bin/sh`nexec `"$hostPy3`" `"`$@`"`n"
+    Write-TextUtf8NoBom -Path $Python3Exe -Content "#!/bin/sh`nexec `"$hostPy3`" `"`$@`"`n"
     & chmod +x (Join-Path $UcrtBin 'g++.exe') (Join-Path $UcrtBin 'gcc.exe') (Join-Path $UcrtBin 'gdb.exe') $MsysCat $PythonExe $Python3Exe
 }
 
