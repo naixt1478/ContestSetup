@@ -4,155 +4,81 @@
 # - Uses an isolated user-data-dir and extensions-dir under $Root\vscode-contest (plus portable $Root\vscode\data).
 # - Replaces existing VS Code .lnk shortcuts so they launch the isolated contest profile in Korean (--locale ko).
 
-if (-not (Get-Command Read-TextUtf8 -ErrorAction SilentlyContinue))
+if (-not (Get-Command Import-ContestLibraryModule -ErrorAction SilentlyContinue))
 {
-  function Read-TextUtf8
+  function Import-ContestLibraryModule
   {
-    param([Parameter(Mandatory = $true)] [string]$Path)
-    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
-  }
-}
-
-if (-not (Get-Command Read-LinesUtf8 -ErrorAction SilentlyContinue))
-{
-  function Read-LinesUtf8
-  {
-    param([Parameter(Mandatory = $true)] [string]$Path)
-    return @([System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8))
-  }
-}
-
-if (-not (Get-Command Strip-JsonComments -ErrorAction SilentlyContinue))
-{
-  function Strip-JsonComments
-  {
-    param([AllowNull()] [AllowEmptyString()] [string]$Json)
-    if ([string]::IsNullOrWhiteSpace($Json)) { return '' }
-    $Text = $Json.TrimStart([char]0xFEFF, ' ', "`t", "`r", "`n")
-    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    $Out = New-Object System.Text.StringBuilder ($Text.Length)
-    $InStr = $false
-    $I = 0
-    $N = $Text.Length
-    while ($I -lt $N)
+    param(
+      [Parameter(Mandatory = $true)] [string]$ModuleName,
+      [switch]$Optional
+    )
+    $Candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot))
     {
-      $C = $Text[$I]
-      if ($InStr)
-      {
-        [void]$Out.Append($C)
-        if ($C -eq '\' -and ($I + 1) -lt $N) { [void]$Out.Append($Text[$I + 1]); $I += 2; continue }
-        if ($C -eq '"') { $InStr = $false }
-        $I++; continue
-      }
-      if ($C -eq '"') { $InStr = $true; [void]$Out.Append($C); $I++; continue }
-      if ($C -eq '/' -and ($I + 1) -lt $N -and $Text[$I + 1] -eq '/')
-      {
-        $I += 2
-        while ($I -lt $N -and $Text[$I] -ne "`n" -and $Text[$I] -ne "`r") { $I++ }
-        continue
-      }
-      if ($C -eq '/' -and ($I + 1) -lt $N -and $Text[$I + 1] -eq '*')
-      {
-        $I += 2
-        while ($I -lt $N) { if ($Text[$I] -eq '*' -and ($I + 1) -lt $N -and $Text[$I + 1] -eq '/') { $I += 2; break }; $I++ }
-        continue
-      }
-      [void]$Out.Append($C)
-      $I++
+      $Candidates.Add((Join-Path (Join-Path $PSScriptRoot 'lib') $ModuleName)) | Out-Null
     }
-    $Pass1 = $Out.ToString()
-    $Clean = New-Object System.Text.StringBuilder ($Pass1.Length)
-    $InStr = $false
-    $I = 0
-    $N = $Pass1.Length
-    while ($I -lt $N)
+    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath))
     {
-      $C = $Pass1[$I]
-      if ($InStr)
+      $CmdParent = Split-Path -Parent $PSCommandPath
+      if (-not [string]::IsNullOrWhiteSpace($CmdParent))
       {
-        [void]$Clean.Append($C)
-        if ($C -eq '\' -and ($I + 1) -lt $N) { [void]$Clean.Append($Pass1[$I + 1]); $I += 2; continue }
-        if ($C -eq '"') { $InStr = $false }
-        $I++; continue
+        $Candidates.Add((Join-Path (Join-Path $CmdParent 'lib') $ModuleName)) | Out-Null
       }
-      if ($C -eq '"') { $InStr = $true; [void]$Clean.Append($C); $I++; continue }
-      if ($C -eq ',')
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_LIB_DIR))
+    {
+      $Candidates.Add((Join-Path $env:CONTEST_LIB_DIR $ModuleName)) | Out-Null
+    }
+    $StageVar = Get-Variable -Name 'ScriptStageDir' -ErrorAction SilentlyContinue
+    if ($null -ne $StageVar -and -not [string]::IsNullOrWhiteSpace([string]$StageVar.Value))
+    {
+      $Candidates.Add((Join-Path (Join-Path ([string]$StageVar.Value) 'lib') $ModuleName)) | Out-Null
+    }
+    try
+    {
+      $CurLoc = (Get-Location).Path
+      if (-not [string]::IsNullOrWhiteSpace($CurLoc))
       {
-        $K = $I + 1
-        while ($K -lt $N -and ($Pass1[$K] -eq ' ' -or $Pass1[$K] -eq "`t" -or $Pass1[$K] -eq "`r" -or $Pass1[$K] -eq "`n")) { $K++ }
-        if ($K -lt $N -and ($Pass1[$K] -eq ([char]125) -or $Pass1[$K] -eq ']')) { $I++; continue }
+        $Candidates.Add((Join-Path (Join-Path $CurLoc 'lib') $ModuleName)) | Out-Null
       }
-      [void]$Clean.Append($C)
-      $I++
     }
-    return $Clean.ToString()
-  }
-}
+    catch {}
 
-if (-not (Get-Command ConvertFrom-JsonSafe -ErrorAction SilentlyContinue))
-{
-  function ConvertFrom-JsonSafe
-  {
-    param([Parameter(Mandatory = $true)] [AllowNull()] [AllowEmptyString()] [string]$Json)
-    if ([string]::IsNullOrWhiteSpace($Json)) { return $null }
-    $Clean = (Strip-JsonComments -Json $Json).Trim()
-    if ([string]::IsNullOrWhiteSpace($Clean)) { return $null }
-    return (ConvertFrom-Json -InputObject $Clean -ErrorAction Stop)
-  }
-}
-
-if (-not (Get-Command ConvertFrom-JsonArray -ErrorAction SilentlyContinue))
-{
-  function ConvertFrom-JsonArray
-  {
-    param([Parameter(Mandatory = $true)] [AllowNull()] [AllowEmptyString()] [string]$Json)
-    if ([string]::IsNullOrWhiteSpace($Json)) { return @() }
-    $Parsed = ConvertFrom-JsonSafe -Json $Json
-    if ($null -eq $Parsed) { return @() }
-    if ($Parsed -is [System.Array]) { return $Parsed }
-    return @($Parsed)
-  }
-}
-
-if (-not (Get-Command Set-ObjectProperty -ErrorAction SilentlyContinue))
-{
-  function Set-ObjectProperty
-  {
-    param([object]$Object, [string]$Name, [AllowNull()] [object]$Value)
-    $Property = $Object.PSObject.Properties[$Name]
-    if ($null -ne $Property)
+    foreach ($Candidate in $Candidates)
     {
-      $Property.Value = $Value
+      if (-not [string]::IsNullOrWhiteSpace($Candidate) -and (Test-Path -LiteralPath $Candidate))
+      {
+        . $Candidate
+        $Tokens = $null
+        $Errors = $null
+        $Ast = [System.Management.Automation.Language.Parser]::ParseFile($Candidate, [ref]$Tokens, [ref]$Errors)
+        if ($null -ne $Ast -and $null -ne $Ast.EndBlock)
+        {
+          foreach ($Stmt in $Ast.EndBlock.Statements)
+          {
+            if ($Stmt -is [System.Management.Automation.Language.FunctionDefinitionAst])
+            {
+              $FnItem = Get-Item -LiteralPath "Function:\$($Stmt.Name)" -ErrorAction SilentlyContinue
+              if ($null -ne $FnItem)
+              {
+                Set-Item -Path "Function:\script:$($Stmt.Name)" -Value $FnItem.ScriptBlock
+              }
+            }
+          }
+        }
+        return
+      }
     }
-    else
+    if (-not $Optional)
     {
-      Add-Member -InputObject $Object -MemberType NoteProperty -Name $Name -Value $Value -Force
+      throw "Required ContestSetup library module not found: lib/$ModuleName"
     }
   }
 }
 
-if (-not (Get-Command Test-PathInside -ErrorAction SilentlyContinue))
-{
-  function Test-PathInside
-  {
-    param([string]$ChildPath, [string]$ParentPath)
-    if ([string]::IsNullOrWhiteSpace($ChildPath) -or [string]::IsNullOrWhiteSpace($ParentPath)) { return $false }
-    $ChildNorm = ($ChildPath -replace '/', '\').Trim().TrimEnd('\').ToLowerInvariant()
-    $ParentNorm = ($ParentPath -replace '/', '\').Trim().TrimEnd('\').ToLowerInvariant()
-    return ($ChildNorm -eq $ParentNorm) -or $ChildNorm.StartsWith("$ParentNorm\", [System.StringComparison]::OrdinalIgnoreCase)
-  }
-}
-
-if (-not (Get-Command Expand-ArchiveFast -ErrorAction SilentlyContinue))
-{
-  function Expand-ArchiveFast
-  {
-    param([Parameter(Mandatory = $true)] [string]$ArchivePath, [Parameter(Mandatory = $true)] [string]$DestinationPath)
-    New-Item -ItemType Directory -Force -Path $DestinationPath | Out-Null
-    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $DestinationPath)
-  }
-}
+Import-ContestLibraryModule -ModuleName 'core-primitives.ps1' -Optional
+Import-ContestLibraryModule -ModuleName 'download-and-archive.ps1' -Optional
+Import-ContestLibraryModule -ModuleName 'vscode-workspace.ps1'
 
 function Join-PathIfRoot
 {
@@ -228,6 +154,8 @@ function Get-VSCodeCommandPath
 {
   $Standalone = Join-Path (Get-ContestRootPath) 'vscode\bin\code.cmd'
   if (Test-Path -LiteralPath $Standalone) { return $Standalone }
+  $ContestFallback = Join-Path (Get-ContestVSCodeRoot) 'bin\code.cmd'
+  if (Test-Path -LiteralPath $ContestFallback) { return $ContestFallback }
   return $null
 }
 
@@ -235,56 +163,17 @@ function Get-VSCodeExePath
 {
   $Standalone = Join-Path (Get-ContestRootPath) 'vscode\Code.exe'
   if (Test-Path -LiteralPath $Standalone) { return $Standalone }
+  $ContestFallback = Join-Path (Get-ContestVSCodeRoot) 'Code.exe'
+  if (Test-Path -LiteralPath $ContestFallback) { return $ContestFallback }
   return $null
 }
 
 function Get-VSCodeProductJsonPath
 {
   $VSCodeRoot = Join-Path (Get-ContestRootPath) 'vscode'
-  if (Get-Command Resolve-VSCodeProductJsonPath -ErrorAction SilentlyContinue)
-  {
-    return (Resolve-VSCodeProductJsonPath -VSCodeRoot $VSCodeRoot)
-  }
-  if (-not (Test-Path -LiteralPath $VSCodeRoot))
-  {
-    return $null
-  }
-
-  $LegacyFlat = Join-Path $VSCodeRoot 'resources\app\product.json'
-  if (Test-Path -LiteralPath $LegacyFlat) { return $LegacyFlat }
-
-  $CodeCmdFile = Join-Path $VSCodeRoot 'bin\code.cmd'
-  if (Test-Path -LiteralPath $CodeCmdFile)
-  {
-    try
-    {
-      $CmdText = Read-TextUtf8 -Path $CodeCmdFile
-      if (-not [string]::IsNullOrWhiteSpace($CmdText))
-      {
-        $CliMatch = [regex]::Match($CmdText, '(?i)(?:%~dp0\.\.[\\/])?([A-Za-z0-9._-]+)[\\/]resources[\\/]app[\\/]out[\\/]cli\.js')
-        if ($CliMatch.Success)
-        {
-          $RefSubDir = $CliMatch.Groups[1].Value
-          $RefProductJson = Join-Path (Join-Path $VSCodeRoot $RefSubDir) 'resources\app\product.json'
-          if (Test-Path -LiteralPath $RefProductJson) { return $RefProductJson }
-        }
-      }
-    }
-    catch {}
-  }
-
-  $ExcludedChildNames = @('data', 'bin', 'tools', 'policies', 'appx')
-  foreach ($ChildDir in @(Get-ChildItem -LiteralPath $VSCodeRoot -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending))
-  {
-    if ($ExcludedChildNames -contains $ChildDir.Name.ToLowerInvariant()) { continue }
-    $CandidateProductJson = Join-Path $ChildDir.FullName 'resources\app\product.json'
-    if (Test-Path -LiteralPath $CandidateProductJson) { return $CandidateProductJson }
-  }
-
-  $RootProductJson = Join-Path $VSCodeRoot 'product.json'
-  if (Test-Path -LiteralPath $RootProductJson) { return $RootProductJson }
-
-  return $null
+  $Resolved = Resolve-VSCodeProductJsonPath -VSCodeRoot $VSCodeRoot
+  if (-not [string]::IsNullOrWhiteSpace($Resolved)) { return $Resolved }
+  return (Resolve-VSCodeProductJsonPath -VSCodeRoot (Get-ContestVSCodeRoot))
 }
 
 function Test-VSCodeStandaloneComplete
@@ -750,52 +639,6 @@ function Test-ContestVSCodeShortcut
   )
 }
 
-function Read-VSCodeShortcutManifest
-{
-  param([Parameter(Mandatory = $true)] [string]$ManifestPath)
-  if (-not (Test-Path -LiteralPath $ManifestPath)) { return @() }
-  try
-  {
-    $Raw = Read-TextUtf8 -Path $ManifestPath
-    $ParsedItems = @(ConvertFrom-JsonArray -Json $Raw)
-    if ($ParsedItems.Count -eq 0) { return @() }
-    return $ParsedItems
-  }
-  catch
-  {
-    return @()
-  }
-}
-
-function Write-VSCodeShortcutManifest
-{
-  param(
-    [Parameter(Mandatory = $true)] [string]$ManifestPath,
-    [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]]$Manifest
-  )
-  $Deduped = @(
-    $Manifest |
-      Where-Object { $null -ne $_ -and $null -ne $_.PSObject.Properties['ShortcutPath'] -and (-not [string]::IsNullOrWhiteSpace([string]$_.ShortcutPath)) } |
-      Group-Object -Property ShortcutPath |
-      ForEach-Object { $_.Group | Select-Object -Last 1 }
-  )
-  Write-JsonUtf8NoBom -Path $ManifestPath -InputObject $Deduped -Depth 10
-}
-
-function Get-VSCodeShortcutManifestItem
-{
-  param(
-    [Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]]$Manifest,
-    [Parameter(Mandatory = $true)] [string]$ShortcutPath
-  )
-  $MatchesList = @(
-    $Manifest |
-      Where-Object { $null -ne $_ -and $null -ne $_.PSObject.Properties['ShortcutPath'] -and ([string]$_.ShortcutPath) -ieq $ShortcutPath }
-  )
-  if ($MatchesList.Count -gt 0) { return $MatchesList[0] }
-  return $null
-}
-
 function Get-InstalledContestVSCodeExtensions
 {
   param([switch]$Refresh)
@@ -807,7 +650,15 @@ function Get-InstalledContestVSCodeExtensions
   $CodeCmd = Get-VSCodeCommandPath
   if (-not $CodeCmd) { return @() }
 
-  $Output = @(Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--list-extensions')) -Quiet).Output
+  $Output = @()
+  try
+  {
+    $Output = @(Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--list-extensions')) -Quiet).Output
+  }
+  catch
+  {
+    return @()
+  }
   $NormalizedList = @($Output | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Where-Object { $_ -and ($_ -match '^[a-z0-9-]+(\.[a-z0-9-]+)+$') })
   $Script:InstalledVSCodeExtensionsCache = $NormalizedList
   return @($NormalizedList)
@@ -829,7 +680,11 @@ function Remove-BlockedVSCodeExtensions
   foreach ($ExtId in $ToUninstall)
   {
     Write-Host "Removing non-allowlisted/blocked extension from contest profile: $ExtId" -ForegroundColor Yellow
-    Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--uninstall-extension', $ExtId)) | Out-Null
+    try
+    {
+      Invoke-NativeCommand -FilePath $CodeCmd -ArgumentList (Get-ContestVSCodeCliArgs @('--uninstall-extension', $ExtId)) | Out-Null
+    }
+    catch {}
     $Script:InstalledVSCodeExtensionsCache = $null
   }
 
@@ -1030,476 +885,6 @@ function Install-VSCodeExtensions
       {
         throw "Failed to install required VS Code extension '$Extension' after 3 attempts."
       }
-    }
-  }
-}
-
-function Convert-PathToSafeFileName
-{
-  param([string]$Path)
-  $Safe = [string]$Path
-  $Safe = $Safe -replace ':', ''
-  $Safe = $Safe -replace '[\\/*?"<>|]', '_'
-  $Safe = $Safe -replace '\s+', '_'
-  return $Safe
-}
-
-function Get-TargetStudentShortcutFolders
-{
-  $TargetDesktop = ''
-  $TargetStartMenu = ''
-  $TargetTaskbarPinned = ''
-  $IsSystemOrCrossUser = $false
-
-  if (Get-Command Resolve-ContestTargetUser -ErrorAction SilentlyContinue)
-  {
-    try
-    {
-      $TargetUser = Resolve-ContestTargetUser
-      if ($TargetUser.IsSystem)
-      {
-        $IsSystemOrCrossUser = $true
-      }
-      elseif (-not [string]::IsNullOrWhiteSpace($TargetUser.ProfilePath) -and (Test-Path -LiteralPath $TargetUser.ProfilePath))
-      {
-        $CurrentSid = try { [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value } catch { '' }
-        if ($CurrentSid -ne $TargetUser.Sid) { $IsSystemOrCrossUser = $true }
-        $ProfDesktop = Join-Path $TargetUser.ProfilePath 'Desktop'
-        $ProfStartMenu = Join-Path $TargetUser.ProfilePath 'AppData\Roaming\Microsoft\Windows\Start Menu'
-        $ProfTaskbar = Join-Path $TargetUser.ProfilePath 'AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
-        $TargetDesktop = $ProfDesktop
-        $TargetStartMenu = $ProfStartMenu
-        $TargetTaskbarPinned = $ProfTaskbar
-      }
-    }
-    catch {}
-  }
-
-  if ([string]::IsNullOrWhiteSpace($TargetDesktop) -and (-not $IsSystemOrCrossUser))
-  {
-    $TargetDesktop = [Environment]::GetFolderPath('Desktop')
-  }
-  if ([string]::IsNullOrWhiteSpace($TargetStartMenu) -and (-not $IsSystemOrCrossUser))
-  {
-    $TargetStartMenu = [Environment]::GetFolderPath('StartMenu')
-  }
-  if ([string]::IsNullOrWhiteSpace($TargetTaskbarPinned) -and (-not [string]::IsNullOrWhiteSpace($env:APPDATA)))
-  {
-    $TargetTaskbarPinned = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
-  }
-
-  return [pscustomobject]@{
-    Desktop             = $TargetDesktop
-    StartMenu           = $TargetStartMenu
-    TaskbarPinned       = $TargetTaskbarPinned
-    CommonDesktop       = [Environment]::GetFolderPath('CommonDesktopDirectory')
-    CommonStartMenu     = [Environment]::GetFolderPath('CommonStartMenu')
-    IsSystemOrCrossUser = $IsSystemOrCrossUser
-  }
-}
-
-function Get-StandardVSCodeShortcutCandidates
-{
-  $Folders = Get-TargetStudentShortcutFolders
-  $Candidates = @()
-
-  if (-not [string]::IsNullOrWhiteSpace($Folders.Desktop)) { $Candidates += (Join-Path $Folders.Desktop 'Visual Studio Code.lnk') }
-  if (-not [string]::IsNullOrWhiteSpace($Folders.CommonDesktop)) { $Candidates += (Join-Path $Folders.CommonDesktop 'Visual Studio Code.lnk') }
-  if (-not [string]::IsNullOrWhiteSpace($Folders.StartMenu)) { $Candidates += (Join-Path $Folders.StartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk') }
-  if (-not [string]::IsNullOrWhiteSpace($Folders.CommonStartMenu)) { $Candidates += (Join-Path $Folders.CommonStartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk') }
-  if (-not [string]::IsNullOrWhiteSpace($Folders.TaskbarPinned)) { $Candidates += (Join-Path $Folders.TaskbarPinned 'Visual Studio Code.lnk') }
-
-  return @($Candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-}
-
-function Get-VSCodeShortcutTargets
-{
-  $Folders = Get-TargetStudentShortcutFolders
-  $Candidates = @(Get-StandardVSCodeShortcutCandidates)
-  $Existing = @($Candidates | Where-Object { Test-Path -LiteralPath $_ })
-
-  $Targets = @()
-  $Targets += $Existing
-  if (-not [string]::IsNullOrWhiteSpace($Folders.Desktop))
-  {
-    $Targets += (Join-Path $Folders.Desktop 'Visual Studio Code.lnk')
-  }
-  if ($Folders.IsSystemOrCrossUser -and (-not [string]::IsNullOrWhiteSpace($Folders.CommonDesktop)))
-  {
-    $Targets += (Join-Path $Folders.CommonDesktop 'Visual Studio Code.lnk')
-  }
-  if ($Existing.Count -eq 0)
-  {
-    if (-not [string]::IsNullOrWhiteSpace($Folders.StartMenu))
-    {
-      $Targets += (Join-Path $Folders.StartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk')
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($Folders.CommonStartMenu))
-    {
-      $Targets += (Join-Path $Folders.CommonStartMenu 'Programs\Visual Studio Code\Visual Studio Code.lnk')
-    }
-  }
-
-  return @($Targets | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-}
-
-function Set-ContestVSCodeShortcut
-{
-  Write-Section 'Replace VS Code shortcuts with contest launcher'
-
-  $CodeExe = Get-VSCodeExePath
-  if (-not $CodeExe) { throw 'Could not find Code.exe for Visual Studio Code.' }
-
-  $ContestRoot = Get-ContestVSCodeRoot
-  $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
-
-  Initialize-ContestVSCodeIsolated
-
-  $ShortcutBackupRootFile = Join-Path $ContestRoot 'shortcut-backup-root.txt'
-  $ShortcutBackupRoot = ''
-  if (Test-Path -LiteralPath $ShortcutBackupRootFile)
-  {
-    try
-    {
-      $ShortcutBackupRoot = [string]((Read-LinesUtf8 -Path $ShortcutBackupRootFile) | Select-Object -First 1)
-    }
-    catch {}
-  }
-  if ([string]::IsNullOrWhiteSpace([string]$ShortcutBackupRoot))
-  {
-    $ShortcutBackupRoot = Join-Path (Get-ContestBackupRootPath) ('vscode-shortcuts-' + (Get-ContestTimeStamp))
-  }
-  New-Item -ItemType Directory -Force -Path $ShortcutBackupRoot | Out-Null
-
-  $Shell = New-Object -ComObject WScript.Shell
-  try
-  {
-    $Manifest = @(Read-VSCodeShortcutManifest -ManifestPath $ManifestPath)
-    $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-    New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
-    $ShortcutArguments = Get-ContestVSCodeShortcutArguments
-
-    foreach ($ShortcutPath in Get-VSCodeShortcutTargets)
-    {
-      try
-      {
-        $ShortcutDir = Split-Path -Path $ShortcutPath -Parent
-        New-Item -ItemType Directory -Force -Path $ShortcutDir | Out-Null
-
-        $Existed = Test-Path -LiteralPath $ShortcutPath
-        $BackupName = (Convert-PathToSafeFileName $ShortcutPath) + '.bak.lnk'
-        $DefaultBackupPath = Join-Path $ShortcutBackupRoot $BackupName
-        $BackupPath = $null
-        $ManifestItem = Get-VSCodeShortcutManifestItem -Manifest $Manifest -ShortcutPath $ShortcutPath
-
-        if ($ManifestItem)
-        {
-          # Preserve original Existed and BackupPath recorded on first run
-          $ExistedProp = $ManifestItem.PSObject.Properties['Existed']
-          $BackupPathProp = $ManifestItem.PSObject.Properties['BackupPath']
-          $Existed = if ($null -ne $ExistedProp) { [bool]$ExistedProp.Value } else { $false }
-          $BackupPath = if ($null -ne $BackupPathProp) { [string]$BackupPathProp.Value } else { '' }
-          if ($Existed -and [string]::IsNullOrWhiteSpace($BackupPath) -and (Test-Path -LiteralPath $DefaultBackupPath))
-          {
-            $BackupPath = $DefaultBackupPath
-          }
-        }
-        elseif ($Existed)
-        {
-          $ExistingShortcut = $Shell.CreateShortcut($ShortcutPath)
-          if (-not (Test-ContestVSCodeShortcut -Shortcut $ExistingShortcut -CodeExe $CodeExe))
-          {
-            $BackupPath = $DefaultBackupPath
-            if (-not (Test-Path -LiteralPath $BackupPath))
-            {
-              Copy-Item -LiteralPath $ShortcutPath -Destination $BackupPath -Force
-            }
-          }
-          elseif (Test-Path -LiteralPath $DefaultBackupPath)
-          {
-            # Shortcut was already converted in a prior run and its backup file exists on disk
-            $Existed = $true
-            $BackupPath = $DefaultBackupPath
-          }
-          else
-          {
-            $Existed = $false
-          }
-        }
-
-        $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-        $Shortcut.TargetPath = $CodeExe
-        $Shortcut.Arguments = $ShortcutArguments
-        $Shortcut.WorkingDirectory = $ContestWorkspace
-        $Shortcut.IconLocation = "$CodeExe,0"
-        $Shortcut.Description = 'Contest isolated Visual Studio Code'
-        $Shortcut.Save()
-
-        if (-not $ManifestItem)
-        {
-          $Manifest += [pscustomobject]@{
-            ShortcutPath = $ShortcutPath
-            Existed      = $Existed
-            BackupPath   = $BackupPath
-          }
-        }
-
-        Write-Host "Updated shortcut: $ShortcutPath" -ForegroundColor Green
-      }
-      catch
-      {
-        Write-Warning "Failed to update shortcut: $ShortcutPath - $($_.Exception.Message)"
-      }
-    }
-
-    Write-VSCodeShortcutManifest -ManifestPath $ManifestPath -Manifest $Manifest
-    Write-LinesUtf8NoBom -Path (Join-Path $ContestRoot 'shortcut-backup-root.txt') -Lines @($ShortcutBackupRoot)
-
-    Write-Host "Shortcut manifest: $ManifestPath" -ForegroundColor Green
-  }
-  finally
-  {
-    if ($null -ne $Shell)
-    {
-      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($Shell) } catch {}
-    }
-  }
-}
-
-function New-ContestVSCodeLauncher
-{
-  Write-Section 'Create contest VS Code launcher'
-
-  $CodeExe = Get-VSCodeExePath
-  if (-not $CodeExe) { throw 'Could not find Code.exe for Visual Studio Code.' }
-
-  Initialize-ContestVSCodeIsolated
-
-  $ContestRoot = Get-ContestVSCodeRoot
-  $UserDataDir = Get-ContestVSCodeUserDataDir
-  $ExtensionsDir = Get-ContestVSCodeExtensionsDir
-  $LauncherPath = Join-Path $ContestRoot 'Start-Contest-VSCode.ps1'
-
-  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-  New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
-
-  $EscapedWorkspace = $ContestWorkspace -replace "'", "''"
-  $EscapedCodeExe = $CodeExe -replace "'", "''"
-  $EscapedUserData = $UserDataDir -replace "'", "''"
-  $EscapedExtensions = $ExtensionsDir -replace "'", "''"
-
-  $LauncherLines = @(
-    'param(',
-    "  [string]`$Path = '$EscapedWorkspace'",
-    ')',
-    '',
-    "`$CodeExe = '$EscapedCodeExe'",
-    "`$UserDataDir = '$EscapedUserData'",
-    "`$ExtensionsDir = '$EscapedExtensions'",
-    '',
-    '& $CodeExe --locale ko --user-data-dir $UserDataDir --extensions-dir $ExtensionsDir $Path'
-  )
-
-  Write-LinesUtf8NoBom -Path $LauncherPath -Lines ([string[]]$LauncherLines)
-  Write-Host "Contest VS Code launcher created: $LauncherPath" -ForegroundColor Green
-}
-
-function New-ContestVSCodeCliWrapper
-{
-  Write-Section 'Create contest code.cmd wrapper'
-
-  $CodeCmd = Get-VSCodeCommandPath
-  if (-not $CodeCmd) { throw 'Could not find code.cmd for Visual Studio Code.' }
-
-  Initialize-ContestVSCodeIsolated
-
-  $BinDir = Join-Path (Get-ContestRootPath) 'bin'
-  New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-
-  $WrapperPath = Join-Path $BinDir 'code.cmd'
-  $UserDataDir = Get-ContestVSCodeUserDataDir
-  $ExtensionsDir = Get-ContestVSCodeExtensionsDir
-
-  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-  New-Item -ItemType Directory -Force -Path $ContestWorkspace | Out-Null
-
-  # Avoid cmd.exe parenthesized ( ... ) blocks around %* so paths containing ')' never break command parsing
-  $WrapperLines = @(
-    '@echo off',
-    '@setlocal',
-    'if "%~1"=="" goto :contest_default',
-    "`"$CodeCmd`" --locale ko --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" %*",
-    'exit /b %ERRORLEVEL%',
-    ':contest_default',
-    "`"$CodeCmd`" --locale ko --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`" `"$ContestWorkspace`"",
-    'exit /b %ERRORLEVEL%'
-  )
-
-  Write-LinesUtf8NoBom -Path $WrapperPath -Lines ([string[]]$WrapperLines)
-  Write-Host "Contest code.cmd wrapper created: $WrapperPath" -ForegroundColor Green
-}
-
-function Set-ContestVSCodeWorkspaceDefaults
-{
-  Write-Section 'Create contest VS Code workspace configurations (tasks, c_cpp_properties, launch)'
-
-  $ContestWorkspace = Join-Path (Get-ContestRootPath) 'contest'
-  $VSCodeDir = Join-Path $ContestWorkspace '.vscode'
-  New-Item -ItemType Directory -Force -Path $VSCodeDir | Out-Null
-
-  $MsysRootValue = Get-ConfiguredValue -Name 'MsysRoot' -DefaultValue "$env:SystemDrive\msys64"
-  $UcrtBinValue = Join-Path ([string]$MsysRootValue) 'ucrt64\bin'
-  $MsysUsrBinValue = Join-Path ([string]$MsysRootValue) 'usr\bin'
-  $GppExeValue = Join-Path $UcrtBinValue 'g++.exe'
-  $GdbExeValue = Join-Path $UcrtBinValue 'gdb.exe'
-  $GppForward = Convert-ToForwardSlashPath $GppExeValue
-  $GdbForward = Convert-ToForwardSlashPath $GdbExeValue
-
-  $Tasks = [ordered]@{
-    version = '2.0.0'
-    tasks   = @(
-      [ordered]@{
-        label          = 'Build C++17'
-        type           = 'process'
-        command        = $GppExeValue
-        args           = @(
-          '-std=gnu++17',
-          '-O2',
-          '-Wall',
-          '-Wextra',
-          '-g',
-          '${file}',
-          '-o',
-          '${fileDirname}\${fileBasenameNoExtension}.exe'
-        )
-        options        = [ordered]@{
-          cwd = '${fileDirname}'
-          env = [ordered]@{
-            Path = "$UcrtBinValue;$MsysUsrBinValue;`${env:Path}"
-          }
-        }
-        group          = [ordered]@{
-          kind      = 'build'
-          isDefault = $true
-        }
-        problemMatcher = @('$gcc')
-      }
-    )
-  }
-
-  $CppProperties = [ordered]@{
-    configurations = @(
-      [ordered]@{
-        name             = 'Win32'
-        includePath      = @('${workspaceFolder}/**')
-        defines          = @('_DEBUG', 'UNICODE', '_UNICODE')
-        compilerPath     = $GppForward
-        cStandard        = 'c17'
-        cppStandard      = 'c++17'
-        intelliSenseMode = 'windows-gcc-x64'
-      }
-    )
-    version        = 4
-  }
-
-  $LaunchConfig = [ordered]@{
-    version        = '0.2.0'
-    configurations = @(
-      [ordered]@{
-        name              = 'Debug C++17 (GDB)'
-        type              = 'cppdbg'
-        request           = 'launch'
-        program           = '${fileDirname}\${fileBasenameNoExtension}.exe'
-        args              = @()
-        stopAtEntry       = $false
-        cwd               = '${fileDirname}'
-        environment       = @(
-          [ordered]@{
-            name  = 'PATH'
-            value = "$UcrtBinValue;$MsysUsrBinValue;`${env:PATH}"
-          }
-        )
-        externalConsole   = $false
-        MIMode            = 'gdb'
-        miDebuggerPath    = $GdbForward
-        setupCommands     = @(
-          [ordered]@{
-            description    = 'Enable pretty-printing for gdb'
-            text           = '-enable-pretty-printing'
-            ignoreFailures = $true
-          }
-        )
-        preLaunchTask     = 'Build C++17'
-      }
-    )
-  }
-
-  Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'tasks.json') -InputObject $Tasks -Depth 20
-  Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'c_cpp_properties.json') -InputObject $CppProperties -Depth 20
-  Write-JsonUtf8NoBom -Path (Join-Path $VSCodeDir 'launch.json') -InputObject $LaunchConfig -Depth 20
-  Write-Host "Contest VS Code workspace configs created in: $VSCodeDir" -ForegroundColor Green
-}
-
-function Restore-NormalVSCodeShortcut
-{
-  param([switch]$RemoveContestData)
-
-  Write-Section 'Restore normal VS Code shortcuts'
-
-  $ContestRoot = Get-ContestVSCodeRoot
-  $ManifestPath = Join-Path $ContestRoot 'shortcut-manifest.json'
-
-  if (Test-Path -LiteralPath $ManifestPath)
-  {
-    $Manifest = @(Read-VSCodeShortcutManifest -ManifestPath $ManifestPath)
-    foreach ($Item in $Manifest)
-    {
-      if ($null -eq $Item) { continue }
-      $ItemShortcutProp = $Item.PSObject.Properties['ShortcutPath']
-      $ItemShortcutPath = if ($null -ne $ItemShortcutProp) { [string]$ItemShortcutProp.Value } else { '' }
-      if ([string]::IsNullOrWhiteSpace($ItemShortcutPath)) { continue }
-      $ItemExistedProp = $Item.PSObject.Properties['Existed']
-      $ItemBackupProp = $Item.PSObject.Properties['BackupPath']
-      $ItemExisted = if ($null -ne $ItemExistedProp) { [bool]$ItemExistedProp.Value } else { $false }
-      $ItemBackupPath = if ($null -ne $ItemBackupProp) { [string]$ItemBackupProp.Value } else { '' }
-      try
-      {
-        if ($ItemExisted -and (-not [string]::IsNullOrWhiteSpace($ItemBackupPath)) -and (Test-Path -LiteralPath $ItemBackupPath))
-        {
-          New-Item -ItemType Directory -Force -Path (Split-Path -Path $ItemShortcutPath -Parent) | Out-Null
-          Copy-Item -LiteralPath $ItemBackupPath -Destination $ItemShortcutPath -Force
-          Write-Host "Restored shortcut: $ItemShortcutPath" -ForegroundColor Green
-        }
-        elseif (Test-Path -LiteralPath $ItemShortcutPath)
-        {
-          Remove-Item -LiteralPath $ItemShortcutPath -Force
-          Write-Host "Removed contest shortcut: $ItemShortcutPath" -ForegroundColor Green
-        }
-      }
-      catch
-      {
-        Write-Warning "Failed to restore shortcut: $ItemShortcutPath - $($_.Exception.Message)"
-      }
-    }
-  }
-  else
-  {
-    Write-Host "No shortcut manifest found at $ManifestPath. Skipping shortcut restoration." -ForegroundColor Yellow
-  }
-
-  if ($RemoveContestData)
-  {
-    Stop-VSCodeProcesses -ContestOnly
-    if (Test-Path -LiteralPath $ContestRoot)
-    {
-      Remove-Item -LiteralPath $ContestRoot -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "Removed isolated contest VS Code data: $ContestRoot" -ForegroundColor Green
-    }
-    $PortableDataDir = Get-PortableVSCodeDataDir
-    if (Test-Path -LiteralPath $PortableDataDir)
-    {
-      Remove-Item -LiteralPath $PortableDataDir -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "Removed portable VS Code data trap: $PortableDataDir" -ForegroundColor Green
     }
   }
 }

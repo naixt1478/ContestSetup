@@ -173,7 +173,7 @@ irm https://raw.githubusercontent.com/naixt1478/ContestSetup/main/restore-and-cl
 
 ## 🧪 개발자용: 테스트 및 CI
 
-저장소에는 스크립트 수정 시 회귀를 잡기 위한 Python 기반 5-Tier 검증 스위트(`tests/run_tests.py`, 284개 테스트)가 포함되어 있습니다. 세부 구성은 `TEST_INFRA.md`, 설계 배경은 `ARCHITECTURE_V2.md`, 변경 이력은 `CHANGELOG.md`를 참고하세요.
+저장소에는 스크립트 수정 시 회귀를 잡기 위한 Python 기반 5-Tier 모듈형 검증 스위트(`tests/run_tests.py` + `tests/contestsetup_tests/`, 총 291개 테스트)가 포함되어 있습니다. 전체 디렉터리 및 `lib/` 8개 공유 도메인 모듈 구조는 [`docs/STRUCTURE.md`](./docs/STRUCTURE.md), 테스트 세부 구성은 [`TEST_INFRA.md`](./TEST_INFRA.md), 설계 배경은 [`ARCHITECTURE_V2.md`](./ARCHITECTURE_V2.md), 변경 이력은 [`CHANGELOG.md`](./CHANGELOG.md)를 참고하세요.
 
 ```bash
 # 저장소 루트에서 전체 실행 (Python 3.8+, __pycache__ 미생성)
@@ -182,10 +182,10 @@ python3 -B tests/run_tests.py --tier all
 # 특정 Tier만 실행 (1~5), 개별 결과 출력
 python3 -B tests/run_tests.py --tier 5 --verbose
 
-# CI 모드: pwsh가 없어 실엔진 회귀 테스트(T5_33, T5_34)를 건너뛰면 실패로 처리
+# CI 모드: pwsh가 없어 실엔진 회귀 및 Live E2E 테스트(T5_33~T5_40)를 건너뛰면 실패로 처리
 python3 -B tests/run_tests.py --tier all --strict
 ```
 
-- 대부분의 테스트는 `.ps1` 소스의 정적 구조·계약 검사와 Python 동작 모델로 수행되며 Windows가 필요하지 않습니다.
-- `T5_33`과 `T5_34`는 PowerShell 7(`pwsh`)로 `common.ps1` 최상위 `irm | iex` 얕은 스코프 회귀, 단독 모듈 dot-source `StrictMode 2.0` 기본값, 오프라인 `pacman -U` `.sig` 제외 및 12개 전체 `.ps1`의 AST·PS 5.1 구문/스위치 바인딩을 실제 검증합니다. `pwsh`는 `CONTEST_PWSH` 환경 변수 → `PATH` → `~/.local/pwsh/pwsh` 순서로 탐색하며, 찾지 못하면 `SKIP`으로 표시됩니다.
-- GitHub Actions(`.github/workflows/ci.yml`)는 `windows-latest`에서 모든 `.ps1`을 Windows PowerShell 5.1과 PowerShell 7 파서로 구문 검사하고, `windows-latest`와 `ubuntu-latest` 양쪽 모두에서 전체 테스트를 `--strict` 필수 게이트로 실행합니다.
+- 대부분의 테스트는 루트 `12`개 및 `lib/` `8`개(총 `20`개) `.ps1` 소스의 정적 구조·계약 검사와 Python 동작 모델로 수행되며 Windows가 필요하지 않습니다.
+- `T5_33`~`T5_41`은 PowerShell 7(`pwsh`)로 `common.ps1` 최상위 `irm | iex` 얕은 스코프 회귀(`T5_33`), 20개 전체 `.ps1`의 AST·PS 5.1 구문/스위치 바인딩 및 단독 `StrictMode 2.0`(`T5_34`), 그리고 **7개의 Live `pwsh` 환경 구축 E2E 테스트(`T5_35`~`T5_41`)** — `common.ps1`+`lib/` KST 일정·매니페스트·`Invoke-ContestEnvironmentAudit`(`T5_35`), 포터블 VS Code 격리·마켓플레이스 잠금/복원·비인가 확장 제거(`T5_36`), `.cmd` 래퍼 생성 및 실제 `g++`(C++14/C++20)·`python3` 컴파일/실행(`T5_37`), 오프라인 설치 파일/MSYS2 패키지 캐시 시딩(`T5_38`), `ai-hosts-block.ps1` 멱등 적용/원복 및 22개 브라우저 정책(`T5_39`), `restore-and-cleanup.ps1` 답안 백업·MSYS2 원복·지연 부팅 종료 억제(`T5_40`), `lib/` 모듈 크기 상한 및 중복 제로 아키텍처 게이트(`T5_41`)를 실제 검증합니다. `pwsh`는 `CONTEST_PWSH` 환경 변수 → `PATH` → `~/.local/pwsh/pwsh` 순서로 탐색하며, 찾지 못하면 `SKIP`으로 표시됩니다.
+- GitHub Actions(`.github/workflows/ci.yml`)는 `windows-latest`에서 모든 `.ps1`을 Windows PowerShell 5.1과 PowerShell 7 파서로 구문 검사하고, `windows-latest`와 `ubuntu-latest` 양쪽 모두에서 전체 291개 테스트를 `--strict` 필수 게이트로 실행합니다.

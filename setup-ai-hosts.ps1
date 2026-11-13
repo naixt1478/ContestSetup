@@ -74,6 +74,38 @@ if (-not $CopiedFromLocal)
 
 if (-not (Test-Path -LiteralPath $AiScriptPath)) { throw "Failed to stage $AiScriptPath" }
 
+# Stage shared library dependencies alongside ai-hosts-block.ps1 for standalone & Scheduled Task execution
+foreach ($LibMod in @('core-primitives.ps1', 'browser-policies.ps1'))
+{
+  $LibCandidates = @()
+  if ($PSScriptRoot) { $LibCandidates += (Join-Path (Join-Path $PSScriptRoot 'lib') $LibMod) }
+  if (Get-Variable -Name 'ScriptStageDir' -ErrorAction SilentlyContinue) { $LibCandidates += (Join-Path (Join-Path $ScriptStageDir 'lib') $LibMod) }
+  if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_LIB_DIR)) { $LibCandidates += (Join-Path $env:CONTEST_LIB_DIR $LibMod) }
+
+  $FoundLib = $LibCandidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+  foreach ($DestParent in @($RootClean, $AiBlockDir, $AiHostsHoldDir))
+  {
+    $DestLibDir = Join-Path $DestParent 'lib'
+    New-Item -ItemType Directory -Force -Path $DestLibDir | Out-Null
+    $DestLibFile = Join-Path $DestLibDir $LibMod
+    if (-not [string]::IsNullOrWhiteSpace($FoundLib))
+    {
+      if ([IO.Path]::GetFullPath($FoundLib) -ine [IO.Path]::GetFullPath($DestLibFile))
+      {
+        Copy-Item -LiteralPath $FoundLib -Destination $DestLibFile -Force
+      }
+    }
+    elseif (-not (Test-Path -LiteralPath $DestLibFile))
+    {
+      $LibUrl = "$RawBase/lib/$LibMod"
+      if (Get-Command Invoke-DownloadFile -ErrorAction SilentlyContinue)
+      {
+        Invoke-DownloadFile -Url $LibUrl -OutFile $DestLibFile
+      }
+    }
+  }
+}
+
 $DeferAiBlock = if (Get-Command Get-ContestVariableValue -ErrorAction SilentlyContinue) {
   [bool](Get-ContestVariableValue -Name 'DeferAiBlockUntilExamStart' -DefaultValue $false -EnvVar 'CONTEST_DEFER_AI_BLOCK')
 } elseif (Get-Variable -Name 'DeferAiBlockUntilExamStart' -ErrorAction SilentlyContinue) {
@@ -140,8 +172,8 @@ elseif ($DeferAiBlock -and (-not $IsBeforeExamWindow))
 
 Write-Progress -Id $Global:ProgressIdInner -ParentId $Global:ProgressIdOuter -Activity $PA -Status 'Applying Blocklist...' -PercentComplete 50
 
-$WinPsExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$PowerShellExe = if (Test-Path -LiteralPath $WinPsExe) {
+$WinPsExe = if (-not [string]::IsNullOrWhiteSpace($env:SystemRoot)) { Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' } else { '' }
+$PowerShellExe = if (-not [string]::IsNullOrWhiteSpace($WinPsExe) -and (Test-Path -LiteralPath $WinPsExe)) {
   $WinPsExe
 } elseif (Get-Command Get-PreferredPowerShell -ErrorAction SilentlyContinue) {
   Get-PreferredPowerShell

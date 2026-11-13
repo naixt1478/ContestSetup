@@ -60,7 +60,7 @@
 
 | ID | 심각도 | 대상 파일 | 심층 감사에서 발굴된 실환경 결함 및 우회 벡터 | Round 2 근본 해결 설계 |
 |---|---|---|---|---|
-| **S-19** | **CRITICAL** | 전체 12개 `.ps1` | **BOM 없는 UTF-8 소스 및 `Get-Content`의 한국어 Windows(`CP949`) 깨짐**: `.editorconfig`(UTF-8 no-BOM) 하에서 PS 5.1은 비-ASCII 문자를 `CP949`로 읽어 파싱 오류를 일으키고, 인코딩 미지정 `Get-Content`가 한글 사용자 경로(`C:\Users\홍길동\...`) 매니페스트/PATH 백업을 손상시킵니다. | 12개 모든 `.ps1` 소스를 **100% 7-bit ASCII(`byte < 0x80`)**로 유지하여 UTF-8 no-BOM과 CP949 호환성을 동시 달성하고, 모든 파일 읽기를 `[System.IO.File]::ReadAllText(..., UTF8)` 기반 `Read-TextUtf8`/`Read-LinesUtf8`로 전면 교체했습니다. |
+| **S-19** | **CRITICAL** | 전체 20개 `.ps1` (`/*.ps1` 12 + `lib/*.ps1` 8) | **BOM 없는 UTF-8 소스 및 `Get-Content`의 한국어 Windows(`CP949`) 깨짐**: `.editorconfig`(UTF-8 no-BOM) 하에서 PS 5.1은 비-ASCII 문자를 `CP949`로 읽어 파싱 오류를 일으키고, 인코딩 미지정 `Get-Content`가 한글 사용자 경로(`C:\Users\홍길동\...`) 매니페스트/PATH 백업을 손상시킵니다. | 20개 모든 `.ps1` 소스를 **100% 7-bit ASCII(`byte < 0x80`)**로 유지하여 UTF-8 no-BOM과 CP949 호환성을 동시 달성하고, 모든 파일 읽기를 `[System.IO.File]::ReadAllText(..., UTF8)` 기반 `Read-TextUtf8`/`Read-LinesUtf8`(`lib/core-primitives.ps1`)로 전면 교체했습니다. |
 | **S-20** | **CRITICAL** | `common.ps1` `setup-vscode.ps1` `restore-and-cleanup.ps1` | **PS 5.1 `@(... \| ConvertFrom-Json)` 2중 배열(`Object[][]`) 버그, JSONC 주석 크래시, `product.json` 속성 대입 예외**: PS 5.1에서 단축아이콘 복구가 `Object[][]`로 실패하고, 최신 VS Code `product.json`에 `cacheUrl` 부재 시 직접 대입이 예외를 던져 마켓플레이스가 열린 채 방치됩니다. | 문자열 외부 `//`·`/* */` 주석을 제거하는 `ConvertFrom-JsonSafe` 및 단일 파이프라인을 분리한 `ConvertFrom-JsonArray`를 도입하고, `Set-ObjectProperty`(`Add-Member -Force`) + 기록 후 `serviceUrl == 127.0.0.1` 재검증을 강제했습니다. |
 | **S-21** | **CRITICAL** | `install-env.ps1` `restore-and-cleanup.ps1` `common.ps1` | **`CONTEST_*` 문자열 환경변수 무효화, `-Mode Verify`의 파괴적 `hosts` 삭제 및 종료코드 `0` 반환**: `param()` 기본값 때문에 환경변수가 무시되고, `-Mode Verify` 실패 시 `catch`에서 활성 AI `hosts` 차단을 지우며 종료코드 `0`을 반환했습니다. | `$PSBoundParameters.ContainsKey(...)` 기반 환경변수 바인딩, `$PSCommandPath` 통일, 뮤텍스 즉시 `try/finally` 보호, 비파괴 `-Mode Verify` 분리 및 실패 시 정확한 종료코드 `1`(`$global:LASTEXITCODE = 1`) 반환을 구현했습니다. |
 | **S-22** | **CRITICAL** | `setup-vscode.ps1` | **VS Code 한국어 UI 미적용(`argv.json` 무시) 및 `Code.exe` 직접 실행 우회**: `--user-data-dir`만으로는 `argv.json`이 무시되어 영문 UI로 실행되며, 탐색기에서 `C:\CPTools\vscode\Code.exe` 직접 실행 시 개인 AI 확장이 로드됩니다. | 모든 런처/단축아이콘에 `--locale ko`를 명시 전달하고, 공식 포터블 디렉터리 `C:\CPTools\vscode\data`(`argv.json`, AI 차단 `settings.json`, 격리 `extensions`)를 함께 초기화하여 직접 실행 우회까지 원천 차단했습니다. |
@@ -77,12 +77,12 @@
 
 ### 3.1 아키텍처 대안 비교
 
-| 평가 항목 | 대안 A: 단일 모놀리식 스크립트 (`contest-setup.ps1` 1개 파일) | 대안 B: 기존 v1.x 순수 원격 `irm \| iex` 스트리밍 | **대안 C (채택): v2.0 하이브리드 로컬 우선 + 스테이징 모듈러 아키텍처** |
+| 평가 항목 | 대안 A: 단일 모놀리식 스크립트 (`contest-setup.ps1` 1개 파일) | 대안 B: 기존 v1.x 순수 원격 `irm \| iex` 스트리밍 | **대안 C (채택): v2.0 하이브리드 로컬 우선 + 3계층(`/*.ps1` + `lib/*.ps1`) 스테이징 모듈러 아키텍처** |
 |---|---|---|---|
-| **유지보수성 및 모듈 분리** | 낮음 (3,000줄 이상 단일 파일로 충돌 및 감사 어려움) | 높음 (역할별 `.ps1` 분리) | **최상** (역할별 12개 순수 ASCII `.ps1` 분리 유지) |
-| **원라이너(`irm \| iex`) 지원** | 지원 | 지원 | **지원** (`install-env.ps1` 진입점 동일 + 중복 다운로드 제거) |
+| **유지보수성 및 모듈 분리** | 낮음 (3,000줄 이상 단일 파일로 충돌 및 감사 어려움) | 높음 (역할별 `.ps1` 분리, 단 공통 함수 중복 발생) | **최상** (루트 오케스트레이터 12개 + `lib/` 단일 진실 공급원 8개 = 총 20개 순수 ASCII `.ps1` 분리, [`docs/STRUCTURE.md`](./docs/STRUCTURE.md) 참고) |
+| **원라이너(`irm \| iex`) 지원** | 지원 | 지원 | **지원** (`install-env.ps1` 진입점 동일 + `$Root\scripts` 및 `$Root\scripts\lib` 단일 패스 스테이징) |
 | **50~200대 실습실 무대역폭 배포** | 별도 패키징 필요 | **불가** (대규모 NAT IP에서 HTTP 429 발생) | **완벽 지원** (`-Mode ExportCache` + `-CacheDir`로 외부 트래픽 0 MB 배포) |
-| **디버깅 및 스택 트레이스** | 파일/줄 번호 표시됨 | **불량** (`Invoke-Expression` 메모리 실행으로 줄번호 유실) | **완벽** (`$Root\scripts` 스테이징 + AST 검증 후 Dot-Sourcing) |
+| **디버깅 및 스택 트레이스** | 파일/줄 번호 표시됨 | **불량** (`Invoke-Expression` 메모리 실행으로 줄번호 유실) | **완벽** (`$Root\scripts`(`+lib`) 스테이징 + AST 검증 후 Dot-Sourcing) |
 | **다중 계정(`SYSTEM`/UAC) 복원력** | 낮음 | **불량** (로그오프/별도 관리자 계정에서 복구 실패) | **최상** (`S-1-5-18` 서비스 작업 + `TargetUserSid` 레지스트리 복원) |
 
 ### 3.2 v2.0 라이프사이클 모드 (`-Mode`) 동작 흐름
@@ -134,11 +134,11 @@
 
 | 계층 | 도구 | 검증 내용 |
 |------|------|-----------|
-| 정적 구문 | `[System.Management.Automation.Language.Parser]::ParseFile` (Windows PowerShell 5.1 + PowerShell 7, GitHub Actions `windows-latest`) | 12개 `.ps1` 전부 구문 오류 0건 |
-| 계약/구조 | `tests/run_tests.py` Tier 1~3 (`PowerShellInspector`) | 파라미터·`CONTEST_*` 환경 변수 동기화, 스크립트 간 호출 계약, 일정 상수, 인코딩(7-bit ASCII, UTF-8 no-BOM, LF) |
-| 동작 모델 | `tests/run_tests.py` Tier 2~4 (`BehavioralSimulator`) | `.ps1`에서 추출한 상수·도메인 목록·정책으로 일정/복구/차단 시나리오 시뮬레이션 |
-| 적대적/변이 | `tests/run_tests.py` Tier 5 | 인자 인용 퍼징, 경로 탈출, StrictMode/PS 5.1 함정, 변이(mutation) 검출 |
-| 실엔진 회귀 | `T5_33` (`pwsh`) | 최상위 `irm \| iex` 로드 시 `Get-ContestVariableValue`가 `Get-Variable -Scope 2`의 `ArgumentOutOfRange`로 중단되지 않음을 실제 실행으로 확인하고, 수정 전(무방비 호출) 변이본은 반드시 실패해야 함 |
+| 정적 구문 | `[System.Management.Automation.Language.Parser]::ParseFile` (Windows PowerShell 5.1 + PowerShell 7, GitHub Actions `windows-latest`) | 루트 12개 + `lib/` 8개(총 20개) `.ps1` 전부 구문 오류 0건 |
+| 계약/구조 | `tests/run_tests.py` + `tests/contestsetup_tests/` Tier 1~3 (`PowerShellInspector`) | 파라미터·`CONTEST_*` 환경 변수 동기화, `Import-ContestLibraryModule` 유효 코드 결합, 스크립트 간 호출 계약, 일정 상수, 인코딩(7-bit ASCII, UTF-8 no-BOM, LF) |
+| 동작 모델 | `tests/contestsetup_tests/` Tier 2~4 (`BehavioralSimulator`) | `.ps1`에서 추출한 상수·도메인 목록·22개 브라우저 정책(`lib/browser-policies.ps1`)으로 일정/복구/차단 시나리오 시뮬레이션 |
+| 적대적/변이 | `tests/contestsetup_tests/tier5_adversarial.py` (`T5_01`~`T5_34`) | 인자 인용 퍼징, 경로 탈출, StrictMode/PS 5.1 함정, 변이(mutation) 검출, `T5_33` 얕은 스코프 `irm \| iex` 회귀 및 `T5_34` 20개 스크립트 AST 감사 |
+| 실엔진 Live E2E | `tests/contestsetup_tests/live_pwsh_e2e.py` (`T5_35`~`T5_41`, `pwsh`) | 실제 `pwsh` 프로세스에서 `common.ps1`+`lib/` 일정·매니페스트·`Invoke-ContestEnvironmentAudit`(`T5_35`), 포터블 VS Code 격리·마켓플레이스 잠금/복원(`T5_36`), `.cmd` 래퍼 생성 및 실제 `g++`(C++14/C++20)·`python3` 컴파일/실행(`T5_37`), 오프라인 캐시/패키지 시딩(`T5_38`), `ai-hosts-block.ps1` 멱등 적용/복원 및 22개 브라우저 정책(`T5_39`), `restore-and-cleanup.ps1` 소스 백업·MSYS2 복원·지연 부팅 종료 억제(`T5_40`), 모듈 크기 상한 및 중복 제로 계약 게이트(`T5_41`) 실행 검증 |
 
-- 실행: 저장소 루트에서 `python3 -B tests/run_tests.py --tier all` (CI는 `--strict`로 SKIP을 실패로 처리).
-- 한계: 관리자 권한·`WindowsPrincipal`·예약 작업·`hosts` 수정 등 실제 설치 경로(`install-env.ps1 -Mode Install/DryRun`)는 Linux에서 실행할 수 없으므로, 시험 전 실제 실습실 PC 1대에서 `-Mode DryRun` → `-Mode Install` → `-Mode Verify` 리허설을 권장합니다.
+- 실행: 저장소 루트에서 `python3 -B tests/run_tests.py --tier all` (총 **291개 테스트**; CI는 `--strict`로 SKIP을 실패로 처리). 모듈 아키텍처 상세는 [`docs/STRUCTURE.md`](./docs/STRUCTURE.md)를 참고하세요.
+- 한계: 관리자 권한·`WindowsPrincipal`·실제 Windows 작업 스케줄러 등록 등 Windows 커널 전용 경로는 Linux에서 직접 호출할 수 없으므로, 시험 전 실제 실습실 PC 1대에서 `-Mode DryRun` → `-Mode Install` → `-Mode Verify` 리허설을 권장합니다.

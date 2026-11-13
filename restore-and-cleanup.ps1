@@ -80,186 +80,120 @@ $RepoName = 'ContestSetup'
 $Branch = 'main'
 $RawBase = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
 
-function Test-IsAdmin
+if (-not (Get-Command Import-ContestLibraryModule -ErrorAction SilentlyContinue))
 {
-  $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $Principal = New-Object Security.Principal.WindowsPrincipal($Identity)
-  return $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Get-PreferredPowerShell
-{
-  $WinPs = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  if (Test-Path -LiteralPath $WinPs) { return $WinPs }
-  $PwshCmds = @(Get-Command pwsh.exe -All -ErrorAction SilentlyContinue | Where-Object {
-    $_.Source -and ($_.Source -notmatch '\\WindowsApps\\')
-  })
-  if ($PwshCmds.Count -gt 0) { return $PwshCmds[0].Source }
-  return 'powershell.exe'
-}
-
-function Quote-ProcessArgument
-{
-  param([AllowNull()] [object]$Value)
-  if ($null -eq $Value) { return '""' }
-  $Text = [string]$Value
-  if ([string]::IsNullOrEmpty($Text)) { return '""' }
-  if ($Text -notmatch '[\s"]') { return $Text }
-  $Escaped = $Text -replace '(\\*)"', '$1$1\"'
-  $Escaped = $Escaped -replace '(\\+)$', '$1$1'
-  return '"' + $Escaped + '"'
-}
-
-function Read-TextUtf8
-{
-  param([Parameter(Mandatory = $true)] [string]$Path)
-  if (-not (Test-Path -LiteralPath $Path)) { return '' }
-  return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
-}
-
-function Read-LinesUtf8
-{
-  param([Parameter(Mandatory = $true)] [string]$Path)
-  if (-not (Test-Path -LiteralPath $Path)) { return @() }
-  return @([System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8))
-}
-
-function Write-TextUtf8NoBom
-{
-  param(
-    [Parameter(Mandatory = $true)] [string]$Path,
-    [Parameter(Mandatory = $true)] [AllowEmptyString()] [string]$Content
-  )
-  $Dir = [IO.Path]::GetDirectoryName($Path)
-  if (-not [string]::IsNullOrWhiteSpace($Dir))
+  function Import-ContestLibraryModule
   {
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-  }
-  $Utf8NoBomEnc = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($Path, $Content, $Utf8NoBomEnc)
-}
+    param(
+      [Parameter(Mandatory = $true)] [string]$ModuleName,
+      [switch]$Optional
+    )
+    $Candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot))
+    {
+      $Candidates.Add((Join-Path (Join-Path $PSScriptRoot 'lib') $ModuleName)) | Out-Null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PSCommandPath))
+    {
+      $CmdParent = Split-Path -Parent $PSCommandPath
+      if (-not [string]::IsNullOrWhiteSpace($CmdParent))
+      {
+        $Candidates.Add((Join-Path (Join-Path $CmdParent 'lib') $ModuleName)) | Out-Null
+      }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_LIB_DIR))
+    {
+      $Candidates.Add((Join-Path $env:CONTEST_LIB_DIR $ModuleName)) | Out-Null
+    }
+    $StageVar = Get-Variable -Name 'ScriptStageDir' -ErrorAction SilentlyContinue
+    if ($null -ne $StageVar -and -not [string]::IsNullOrWhiteSpace([string]$StageVar.Value))
+    {
+      $Candidates.Add((Join-Path (Join-Path ([string]$StageVar.Value) 'lib') $ModuleName)) | Out-Null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Root))
+    {
+      $Candidates.Add((Join-Path (Join-Path $Root 'lib') $ModuleName)) | Out-Null
+      $Candidates.Add((Join-Path (Join-Path (Join-Path $Root 'scripts') 'lib') $ModuleName)) | Out-Null
+      $Candidates.Add((Join-Path (Join-Path (Join-Path $Root 'ai-block') 'lib') $ModuleName)) | Out-Null
+    }
+    try
+    {
+      $CurLoc = (Get-Location).Path
+      if (-not [string]::IsNullOrWhiteSpace($CurLoc))
+      {
+        $Candidates.Add((Join-Path (Join-Path $CurLoc 'lib') $ModuleName)) | Out-Null
+      }
+    }
+    catch {}
 
-function Strip-JsonComments
-{
-  param([AllowNull()] [AllowEmptyString()] [string]$Json)
-  if ([string]::IsNullOrWhiteSpace($Json)) { return '' }
-  $Src = $Json.TrimStart([char]0xFEFF, ' ', "`t", "`r", "`n")
-  if ([string]::IsNullOrWhiteSpace($Src)) { return '' }
-  $Sb = New-Object System.Text.StringBuilder
-  $InString = $false
-  $Len = $Src.Length
-  $Idx = 0
-  while ($Idx -lt $Len)
-  {
-    $Ch = $Src[$Idx]
-    if ($InString)
+    $ResolvedModule = $null
+    foreach ($Candidate in $Candidates)
     {
-      [void]$Sb.Append($Ch)
-      if ($Ch -eq '\' -and ($Idx + 1) -lt $Len)
+      if (-not [string]::IsNullOrWhiteSpace($Candidate) -and (Test-Path -LiteralPath $Candidate))
       {
-        $Idx++
-        [void]$Sb.Append($Src[$Idx])
+        $ResolvedModule = $Candidate
+        break
       }
-      elseif ($Ch -eq '"')
+    }
+
+    if ($null -eq $ResolvedModule -and (-not $Optional))
+    {
+      try
       {
-        $InString = $false
-      }
-      $Idx++
-      continue
-    }
-    if ($Ch -eq '"')
-    {
-      $InString = $true
-      [void]$Sb.Append($Ch)
-      $Idx++
-      continue
-    }
-    if ($Ch -eq '/' -and ($Idx + 1) -lt $Len -and $Src[$Idx + 1] -eq '/')
-    {
-      $Idx += 2
-      while ($Idx -lt $Len -and $Src[$Idx] -ne "`n" -and $Src[$Idx] -ne "`r") { $Idx++ }
-      continue
-    }
-    if ($Ch -eq '/' -and ($Idx + 1) -lt $Len -and $Src[$Idx + 1] -eq '*')
-    {
-      $Idx += 2
-      while ($Idx -lt $Len)
-      {
-        if (($Idx + 1) -lt $Len -and $Src[$Idx] -eq '*' -and $Src[$Idx + 1] -eq '/')
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $TempLibDir = Join-Path (Join-Path ([IO.Path]::GetTempPath()) 'contest-env-installer') 'lib'
+        New-Item -ItemType Directory -Force -Path $TempLibDir | Out-Null
+        $TempModulePath = Join-Path $TempLibDir $ModuleName
+        $OldProg = $ProgressPreference
+        try
         {
-          $Idx += 2
-          break
+          $ProgressPreference = 'SilentlyContinue'
+          $ReqParams = @{ Uri = "$RawBase/lib/$ModuleName"; OutFile = $TempModulePath; ErrorAction = 'Stop' }
+          if ($PSVersionTable.PSVersion.Major -le 5) { $ReqParams['UseBasicParsing'] = $true }
+          Invoke-WebRequest @ReqParams
+          if (Test-Path -LiteralPath $TempModulePath) { $ResolvedModule = $TempModulePath }
         }
-        $Idx++
+        finally
+        {
+          $ProgressPreference = $OldProg
+        }
       }
-      continue
+      catch {}
     }
-    [void]$Sb.Append($Ch)
-    $Idx++
+
+    if ($null -ne $ResolvedModule)
+    {
+      . $ResolvedModule
+      $Tokens = $null
+      $Errors = $null
+      $Ast = [System.Management.Automation.Language.Parser]::ParseFile($ResolvedModule, [ref]$Tokens, [ref]$Errors)
+      if ($null -ne $Ast -and $null -ne $Ast.EndBlock)
+      {
+        foreach ($Stmt in $Ast.EndBlock.Statements)
+        {
+          if ($Stmt -is [System.Management.Automation.Language.FunctionDefinitionAst])
+          {
+            $FnItem = Get-Item -LiteralPath "Function:\$($Stmt.Name)" -ErrorAction SilentlyContinue
+            if ($null -ne $FnItem)
+            {
+              Set-Item -Path "Function:\script:$($Stmt.Name)" -Value $FnItem.ScriptBlock
+            }
+          }
+        }
+      }
+      return
+    }
+
+    if (-not $Optional)
+    {
+      throw "Required ContestSetup library module not found: lib/$ModuleName"
+    }
   }
-
-  $Pass1 = $Sb.ToString()
-  $OutSb = New-Object System.Text.StringBuilder
-  $InString = $false
-  $Len = $Pass1.Length
-  $Idx = 0
-  while ($Idx -lt $Len)
-  {
-    $Ch = $Pass1[$Idx]
-    if ($InString)
-    {
-      [void]$OutSb.Append($Ch)
-      if ($Ch -eq '\' -and ($Idx + 1) -lt $Len)
-      {
-        $Idx++
-        [void]$OutSb.Append($Pass1[$Idx])
-      }
-      elseif ($Ch -eq '"')
-      {
-        $InString = $false
-      }
-      $Idx++
-      continue
-    }
-    if ($Ch -eq '"')
-    {
-      $InString = $true
-      [void]$OutSb.Append($Ch)
-      $Idx++
-      continue
-    }
-    if ($Ch -eq ',')
-    {
-      $Look = $Idx + 1
-      while ($Look -lt $Len -and ($Pass1[$Look] -eq ' ' -or $Pass1[$Look] -eq "`t" -or $Pass1[$Look] -eq "`r" -or $Pass1[$Look] -eq "`n")) { $Look++ }
-      if ($Look -lt $Len -and ($Pass1[$Look] -eq '}' -or $Pass1[$Look] -eq ']'))
-      {
-        $Idx++
-        continue
-      }
-    }
-    [void]$OutSb.Append($Ch)
-    $Idx++
-  }
-  return $OutSb.ToString().Trim()
 }
 
-function ConvertFrom-JsonSafe
-{
-  param([AllowNull()] [AllowEmptyString()] [string]$Json)
-  $Clean = Strip-JsonComments -Json $Json
-  if ([string]::IsNullOrWhiteSpace($Clean)) { return $null }
-  return (ConvertFrom-Json -InputObject $Clean -ErrorAction Stop)
-}
-
-function ConvertFrom-JsonArray
-{
-  param([AllowNull()] [AllowEmptyString()] [string]$Json)
-  $Parsed = ConvertFrom-JsonSafe -Json $Json
-  if ($null -eq $Parsed) { return @() }
-  if ($Parsed -is [System.Array]) { return $Parsed }
-  return @($Parsed)
-}
+Import-ContestLibraryModule -ModuleName 'core-primitives.ps1'
+Import-ContestLibraryModule -ModuleName 'browser-policies.ps1'
+$ErrorActionPreference = 'Continue'
 
 function Build-RestoreForwardArgs
 {
@@ -433,12 +367,6 @@ function Get-NormalizedFullPath
   return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
 }
 
-function Normalize-PathForCompare
-{
-  param([Parameter(Mandatory = $true)] [string]$Path)
-  return $Path.Trim().TrimEnd('\', '/').ToLowerInvariant()
-}
-
 function Assert-SafeRemovalPath
 {
   param(
@@ -463,10 +391,10 @@ function Assert-SafeRemovalPath
 
   $Normalized = Get-NormalizedFullPath -Path $Trimmed
   $CriticalPaths = @(
-    (Get-NormalizedFullPath -Path ([System.IO.Path]::GetPathRoot($Normalized))),
-    (Get-NormalizedFullPath -Path $env:SystemRoot),
-    (Get-NormalizedFullPath -Path $env:ProgramData)
+    (Get-NormalizedFullPath -Path ([System.IO.Path]::GetPathRoot($Normalized)))
   )
+  if (-not [string]::IsNullOrWhiteSpace($env:SystemRoot)) { $CriticalPaths += (Get-NormalizedFullPath -Path $env:SystemRoot) }
+  if (-not [string]::IsNullOrWhiteSpace($env:ProgramData)) { $CriticalPaths += (Get-NormalizedFullPath -Path $env:ProgramData) }
   if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { $CriticalPaths += (Get-NormalizedFullPath -Path $env:USERPROFILE) }
   if (-not [string]::IsNullOrWhiteSpace($TargetUserProfile)) { $CriticalPaths += (Get-NormalizedFullPath -Path $TargetUserProfile) }
   if ($env:ProgramFiles) { $CriticalPaths += (Get-NormalizedFullPath -Path $env:ProgramFiles) }
@@ -478,26 +406,6 @@ function Assert-SafeRemovalPath
   }
 
   return $Normalized
-}
-
-function Test-PathInside
-{
-  param(
-    [Parameter(Mandatory = $true)] [AllowEmptyString()] [string]$ChildPath,
-    [Parameter(Mandatory = $true)] [string]$ParentPath
-  )
-  if ([string]::IsNullOrWhiteSpace($ChildPath)) { return $false }
-  try
-  {
-    $Child = Get-NormalizedFullPath -Path $ChildPath
-    $Parent = Get-NormalizedFullPath -Path $ParentPath
-    $ParentPrefix = $Parent + '\'
-    return ($Child -ieq $Parent) -or $Child.StartsWith($ParentPrefix, [System.StringComparison]::OrdinalIgnoreCase)
-  }
-  catch
-  {
-    return $false
-  }
 }
 
 function Stop-ProcessesUnderPath
@@ -995,40 +903,11 @@ function Restore-Msys2ContestConfiguration
   }
 }
 
-function Get-ExtendedBrowserPolicySpecifications
-{
-  return @(
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Google\Chrome'; Name = 'DnsOverHttpsTemplates'; Type = 'String'; Value = '' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Google\Chrome'; Name = 'BuiltInAIAPIsEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Google\Chrome'; Name = 'GenAILocalFoundationalModelSettings'; Type = 'DWord'; Value = 1 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'DnsOverHttpsTemplates'; Type = 'String'; Value = '' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'EdgeEntraCopilotPageContext'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'BuiltInAIAPIsEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'; Name = 'DnsOverHttpsTemplates'; Type = 'String'; Value = '' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'; Name = 'BraveAIChatEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Naver\Naver Whale'; Name = 'DnsOverHttpsTemplates'; Type = 'String'; Value = '' }
-  )
-}
-
 function Restore-BrowserPoliciesFallback
 {
   param([Parameter(Mandatory = $true)] [string]$ContestRoot)
 
-  $Specs = @(
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Google\Chrome'; Name = 'DnsOverHttpsMode'; Type = 'String'; Value = 'off' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Google\Chrome'; Name = 'BuiltInDnsClientEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'DnsOverHttpsMode'; Type = 'String'; Value = 'off' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'BuiltInDnsClientEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'HubsSidebarEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'; Name = 'CopilotPageContext'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'; Name = 'DnsOverHttpsMode'; Type = 'String'; Value = 'off' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'; Name = 'BuiltInDnsClientEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Naver\Naver Whale'; Name = 'DnsOverHttpsMode'; Type = 'String'; Value = 'off' },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Naver\Naver Whale'; Name = 'BuiltInDnsClientEnabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS'; Name = 'Enabled'; Type = 'DWord'; Value = 0 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS'; Name = 'Locked'; Type = 'DWord'; Value = 1 },
-    @{ KeyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'; Name = 'TurnOffWindowsCopilot'; Type = 'DWord'; Value = 1 }
-  )
+  $Specs = @(Get-BrowserPolicySpecifications)
   $AllSpecs = @($Specs + (Get-ExtendedBrowserPolicySpecifications))
 
   $PolicyBakPath = Join-Path (Join-Path $ContestRoot 'ai-block') 'browser-policies.bak.json'
@@ -1246,6 +1125,10 @@ function Resolve-WorkspaceBackupBaseDir
   {
     $Candidates.Add($env:TEMP) | Out-Null
   }
+  else
+  {
+    try { $Candidates.Add([System.IO.Path]::GetTempPath().TrimEnd('\', '/')) | Out-Null } catch {}
+  }
 
   foreach ($BaseCandidate in $Candidates)
   {
@@ -1258,7 +1141,8 @@ function Resolve-WorkspaceBackupBaseDir
     }
     catch {}
   }
-  return $env:TEMP
+  if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) { return $env:TEMP }
+  return [System.IO.Path]::GetTempPath().TrimEnd('\', '/')
 }
 
 function Backup-ContestWorkspaceSources
@@ -1414,6 +1298,32 @@ if ($PSCommandPath -and (-not $ReinvokedFromTemp) -and ($PreserveDirs.Count -eq 
   {
     $TempRunner = Join-Path $env:TEMP 'contest-restore-runner.ps1'
     Copy-Item -LiteralPath $PSCommandPath -Destination $TempRunner -Force -ErrorAction Stop
+
+    $TempLibDestDir = Join-Path $env:TEMP 'lib'
+    $RelocLibSearchDirs = @(
+      (Join-Path (Split-Path -Parent $PSCommandPath) 'lib'),
+      (Join-Path (Join-Path $Root 'scripts') 'lib'),
+      (Join-Path $Root 'lib')
+    )
+    if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_LIB_DIR)) { $RelocLibSearchDirs += $env:CONTEST_LIB_DIR }
+    foreach ($LibMod in @('core-primitives.ps1', 'browser-policies.ps1'))
+    {
+      foreach ($LibCandDir in $RelocLibSearchDirs)
+      {
+        $CandLibFile = Join-Path $LibCandDir $LibMod
+        if (Test-Path -LiteralPath $CandLibFile)
+        {
+          New-Item -ItemType Directory -Force -Path $TempLibDestDir -ErrorAction SilentlyContinue | Out-Null
+          $DestTempLib = Join-Path $TempLibDestDir $LibMod
+          if ([IO.Path]::GetFullPath($CandLibFile) -ine [IO.Path]::GetFullPath($DestTempLib))
+          {
+            Copy-Item -LiteralPath $CandLibFile -Destination $DestTempLib -Force -ErrorAction SilentlyContinue
+          }
+          break
+        }
+      }
+    }
+
     Set-Location -LiteralPath $env:TEMP
     $RelocArgs = Build-RestoreForwardArgs -ScriptFile $TempRunner -IncludeReinvokedFromTemp
     $RelocArgString = ($RelocArgs | ForEach-Object { Quote-ProcessArgument $_ }) -join ' '
@@ -1718,7 +1628,13 @@ try
   }
 
   # Unconditionally verify hosts file has no lingering ContestSetup blocklist markers
-  $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+  $HostsPath = if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_HOSTS_PATH_OVERRIDE)) {
+    $env:CONTEST_HOSTS_PATH_OVERRIDE
+  } elseif (-not [string]::IsNullOrWhiteSpace($env:SystemRoot)) {
+    Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+  } else {
+    '/etc/hosts'
+  }
   if (Test-Path -LiteralPath $HostsPath)
   {
     try

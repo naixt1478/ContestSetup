@@ -209,7 +209,8 @@ function Fetch-RemoteScriptContentWithRetry
     try
     {
       $CacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      $Uri = "{0}/{1}?cb={2}" -f $RawBase.TrimEnd('/'), $ScriptName, $CacheBust
+      $NormalizedRemoteName = $ScriptName -replace '\\', '/'
+      $Uri = "{0}/{1}?cb={2}" -f $RawBase.TrimEnd('/'), $NormalizedRemoteName, $CacheBust
       $OldProgressPref = $ProgressPreference
       try
       {
@@ -502,6 +503,17 @@ try
     'restore-and-cleanup.ps1'
   )
 
+  $LibScripts = @(
+    'lib/core-primitives.ps1',
+    'lib/logging-and-manifest.ps1',
+    'lib/schedule-and-preflight.ps1',
+    'lib/download-and-archive.ps1',
+    'lib/path-and-identity.ps1',
+    'lib/environment-audit.ps1',
+    'lib/browser-policies.ps1',
+    'lib/vscode-workspace.ps1'
+  )
+
   $LocalSourceDir = $PSScriptRoot
   if ([string]::IsNullOrWhiteSpace($LocalSourceDir) -and (-not [string]::IsNullOrWhiteSpace($PSCommandPath)))
   {
@@ -511,9 +523,10 @@ try
   $CanUseLocalModules = (-not $UseRemote) -and (-not [string]::IsNullOrWhiteSpace($LocalSourceDir))
   if ($CanUseLocalModules)
   {
-    foreach ($ReqScript in $Modules)
+    foreach ($ReqScript in ($Modules + $LibScripts))
     {
-      if (-not (Test-Path -LiteralPath (Join-Path $LocalSourceDir $ReqScript)))
+      $ReqRelPath = $ReqScript -replace '/', [IO.Path]::DirectorySeparatorChar
+      if (-not (Test-Path -LiteralPath (Join-Path $LocalSourceDir $ReqRelPath)))
       {
         $CanUseLocalModules = $false
         break
@@ -530,6 +543,7 @@ try
       [Parameter(Mandatory = $true)] [string]$ScriptName,
       [switch]$PreferLocalWithoutStaging
     )
+    $RelScriptPath = $ScriptName -replace '/', [IO.Path]::DirectorySeparatorChar
     if ($Script:StagedScriptPaths.ContainsKey($ScriptName))
     {
       $CachedPath = [string]$Script:StagedScriptPaths[$ScriptName]
@@ -539,8 +553,12 @@ try
         {
           try
           {
-            New-Item -ItemType Directory -Force -Path $ScriptStageDir | Out-Null
-            $StagedCopy = Join-Path $ScriptStageDir $ScriptName
+            $StagedCopy = Join-Path $ScriptStageDir $RelScriptPath
+            $StagedParent = [IO.Path]::GetDirectoryName($StagedCopy)
+            if (-not [string]::IsNullOrWhiteSpace($StagedParent))
+            {
+              New-Item -ItemType Directory -Force -Path $StagedParent | Out-Null
+            }
             if (-not (Test-Path -LiteralPath $StagedCopy) -and ([IO.Path]::GetFullPath($CachedPath) -ine [IO.Path]::GetFullPath($StagedCopy)))
             {
               Copy-Item -LiteralPath $CachedPath -Destination $StagedCopy -Force
@@ -554,7 +572,7 @@ try
 
     if ($CanUseLocalModules)
     {
-      $LocalPath = Join-Path $LocalSourceDir $ScriptName
+      $LocalPath = Join-Path $LocalSourceDir $RelScriptPath
       if (Test-Path -LiteralPath $LocalPath)
       {
         Assert-PowerShellSyntaxValid -Path $LocalPath
@@ -562,8 +580,12 @@ try
         {
           try
           {
-            New-Item -ItemType Directory -Force -Path $ScriptStageDir | Out-Null
-            $StagedCopy = Join-Path $ScriptStageDir $ScriptName
+            $StagedCopy = Join-Path $ScriptStageDir $RelScriptPath
+            $StagedParent = [IO.Path]::GetDirectoryName($StagedCopy)
+            if (-not [string]::IsNullOrWhiteSpace($StagedParent))
+            {
+              New-Item -ItemType Directory -Force -Path $StagedParent | Out-Null
+            }
             if ([IO.Path]::GetFullPath($LocalPath) -ine [IO.Path]::GetFullPath($StagedCopy))
             {
               Copy-Item -LiteralPath $LocalPath -Destination $StagedCopy -Force
@@ -576,8 +598,12 @@ try
       }
     }
 
-    New-Item -ItemType Directory -Force -Path $ScriptStageDir | Out-Null
-    $StagedPath = Join-Path $ScriptStageDir $ScriptName
+    $StagedPath = Join-Path $ScriptStageDir $RelScriptPath
+    $StagedDir = [IO.Path]::GetDirectoryName($StagedPath)
+    if (-not [string]::IsNullOrWhiteSpace($StagedDir))
+    {
+      New-Item -ItemType Directory -Force -Path $StagedDir | Out-Null
+    }
     $Content = Fetch-RemoteScriptContentWithRetry -ScriptName $ScriptName
     Write-ScriptUtf8Bom -Path $StagedPath -Content $Content
     Assert-PowerShellSyntaxValid -Path $StagedPath
@@ -596,6 +622,10 @@ try
   if ($Mode -in @('Status', 'Verify', 'DryRun'))
   {
     $Module = 'common.ps1'
+    foreach ($LibItem in $LibScripts)
+    {
+      Resolve-OrStageScriptPath -ScriptName $LibItem -PreferLocalWithoutStaging | Out-Null
+    }
     $CommonScriptPath = Resolve-OrStageScriptPath -ScriptName 'common.ps1' -PreferLocalWithoutStaging
     . $CommonScriptPath
 
@@ -644,6 +674,10 @@ try
   elseif ($Mode -eq 'Restore')
   {
     $Module = 'common.ps1'
+    foreach ($LibItem in $LibScripts)
+    {
+      Resolve-OrStageScriptPath -ScriptName $LibItem -PreferLocalWithoutStaging | Out-Null
+    }
     $CommonScriptPath = Resolve-OrStageScriptPath -ScriptName 'common.ps1' -PreferLocalWithoutStaging
     . $CommonScriptPath
 
@@ -670,18 +704,18 @@ try
   elseif ($Mode -eq 'ExportCache')
   {
     $Module = 'common.ps1'
+    foreach ($LibItem in $LibScripts) { Resolve-OrStageScriptPath -ScriptName $LibItem -PreferLocalWithoutStaging | Out-Null }
     $CommonScriptPath = Resolve-OrStageScriptPath -ScriptName 'common.ps1' -PreferLocalWithoutStaging
     . $CommonScriptPath
 
     $Module = 'ExportCache'
     $ExportRoot = if (-not [string]::IsNullOrWhiteSpace($CacheDir)) { $CacheDir } else { Join-Path $Root 'export-cache' }
     Write-Section "Exporting Offline USB/LAN Cache Bundle to $ExportRoot"
-    New-Item -ItemType Directory -Force -Path $ExportRoot | Out-Null
     $ExportScriptsDir = Join-Path $ExportRoot 'scripts'
     $ExportExtDir = Join-Path $ExportRoot 'vscode-extensions'
     $ExportPkgDir = Join-Path $ExportRoot 'msys2-pkg'
     $ExportSyncDir = Join-Path $ExportRoot 'msys2-sync'
-    New-Item -ItemType Directory -Force -Path $ExportScriptsDir, $ExportExtDir, $ExportPkgDir, $ExportSyncDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $ExportRoot, $ExportScriptsDir, (Join-Path $ExportScriptsDir 'lib'), $ExportExtDir, $ExportPkgDir, $ExportSyncDir | Out-Null
 
     $BundleInstallers = @(
       [pscustomobject]@{ Name = 'MSYS2 Installer';            Url = $Msys2InstallerUrl; OutFile = $Msys2InstallerPath; MinBytes = 40MB },
@@ -730,18 +764,16 @@ try
       }
     }
 
-    $AllRepoScripts = @('install-env.ps1', 'install-ai-hosts.ps1') + $Modules + $AuxiliaryScripts
+    $AllRepoScripts = @('install-env.ps1', 'install-ai-hosts.ps1') + $Modules + $AuxiliaryScripts + $LibScripts
     foreach ($ScriptItem in ($AllRepoScripts | Select-Object -Unique))
     {
       try
       {
         $ResolvedScript = Resolve-OrStageScriptPath -ScriptName $ScriptItem -PreferLocalWithoutStaging
-        Copy-Item -LiteralPath $ResolvedScript -Destination (Join-Path $ExportScriptsDir $ScriptItem) -Force
+        $ExportDestPath = Join-Path $ExportScriptsDir ($ScriptItem -replace '/', [IO.Path]::DirectorySeparatorChar)
+        Copy-Item -LiteralPath $ResolvedScript -Destination $ExportDestPath -Force
       }
-      catch
-      {
-        Write-Warning "Could not bundle script ${ScriptItem}: $($_.Exception.Message)"
-      }
+      catch { Write-Warning "Could not bundle script ${ScriptItem}: $($_.Exception.Message)" }
     }
 
     $CacheManifest = [ordered]@{
@@ -764,11 +796,11 @@ try
   }
   else
   {
-    # Mode == 'Install': Stage all modules & auxiliary scripts upfront when running in remote mode
+    # Mode == 'Install': Stage all library modules, orchestration modules & auxiliary scripts upfront when running in remote mode
     if (-not $CanUseLocalModules)
     {
       Write-Host "Staging scripts into $ScriptStageDir ..." -ForegroundColor Cyan
-      foreach ($ScriptToStage in ($Modules + $AuxiliaryScripts))
+      foreach ($ScriptToStage in ($LibScripts + $Modules + $AuxiliaryScripts))
       {
         Resolve-OrStageScriptPath -ScriptName $ScriptToStage | Out-Null
       }
@@ -776,7 +808,7 @@ try
     else
     {
       Write-Host "Using local modules from $LocalSourceDir ..." -ForegroundColor Green
-      foreach ($AuxScript in $AuxiliaryScripts)
+      foreach ($AuxScript in ($LibScripts + $AuxiliaryScripts))
       {
         Resolve-OrStageScriptPath -ScriptName $AuxScript | Out-Null
       }
@@ -803,6 +835,20 @@ try
         New-Item -ItemType Directory -Force -Path (Join-Path $Root 'ai-block') | Out-Null
         if ([IO.Path]::GetFullPath($AiStagedSource) -ine [IO.Path]::GetFullPath($AiDestRoot)) { Copy-Item -LiteralPath $AiStagedSource -Destination $AiDestRoot -Force }
         if ([IO.Path]::GetFullPath($AiStagedSource) -ine [IO.Path]::GetFullPath($AiDestSub)) { Copy-Item -LiteralPath $AiStagedSource -Destination $AiDestSub -Force }
+        foreach ($AiLib in @('lib/core-primitives.ps1', 'lib/browser-policies.ps1'))
+        {
+          $ResolvedAiLib = Resolve-OrStageScriptPath -ScriptName $AiLib
+          $LeafName = [IO.Path]::GetFileName($ResolvedAiLib)
+          foreach ($AiLibDestDir in @((Join-Path $Root 'lib'), (Join-Path (Join-Path $Root 'ai-block') 'lib')))
+          {
+            New-Item -ItemType Directory -Force -Path $AiLibDestDir | Out-Null
+            $DestLibFile = Join-Path $AiLibDestDir $LeafName
+            if ([IO.Path]::GetFullPath($ResolvedAiLib) -ine [IO.Path]::GetFullPath($DestLibFile))
+            {
+              Copy-Item -LiteralPath $ResolvedAiLib -Destination $DestLibFile -Force
+            }
+          }
+        }
         Write-Host "Deferred immediate AI hosts blocking until ExamStart ($ExamStart) per -DeferAiBlockUntilExamStart." -ForegroundColor Yellow
       }
       else

@@ -5,14 +5,14 @@
 ### Overview
 `ContestSetup v2.0` is a modular, idempotent, self-verifying Windows PowerShell provisioning and anti-cheat suite for competitive programming exams (50–200 PC university labs and student laptops). It provisions an isolated C/C++ (MSYS2 UCRT64 GCC/GDB) and Python (`3.10.11`) environment under `C:\CPTools` and `C:\msys64`, configures a dual-layer locked-down portable VS Code profile (`C:\CPTools\vscode\data` + `C:\CPTools\vscode-contest`) with Korean locale (`--locale ko`), strict extension allowlist, and disabled AI/Marketplace features, enforces an IPv4+IPv6+`www.` AI domain blocklist in Windows `hosts` paired with reversible HKLM Browser DNS-over-HTTPS (DoH) & Copilot policy lockdown, and schedules SID-aware `NT AUTHORITY\SYSTEM` (`S-1-5-18`) post-exam environment cleanup and restoration for **Monday, November 23, 2026, 19:00–20:30 (`2026-11-23T19:00:00` to `2026-11-23T20:30:00` KST)**.
 
-### Structural & Reliability Architecture in v2.0 (Round 1 + Round 2 Hardening)
-1. **Local-First + Single-Pass Staged Script Loader (`install-env.ps1`)**:
-   - Replaces v1.x's unconditional remote `Invoke-RestMethod ... | Invoke-Expression` loop.
-   - **Local Mode**: When run from a local checkout or USB drive (`$PSScriptRoot` contains all module `.ps1` files) and `-UseRemote` is not set, modules are validated and dot-sourced directly from `$PSScriptRoot`.
-   - **Remote Stage Mode (`irm ... | iex`)**: Downloads required `.ps1` scripts once into `$Root\scripts` (`C:\CPTools\scripts`, cached via `$Script:StagedScriptPaths`) with retry, UTF-8 stream decoding, and PowerShell AST syntax validation (`[System.Management.Automation.Language.Parser]::ParseFile`), then dot-sources them from disk.
+### Structural & Reliability Architecture in v2.0 (Round 1 + Round 2 Hardening + Modular `lib/` & Live E2E)
+1. **Local-First + Single-Pass Staged Script & `lib/` Module Loader (`install-env.ps1`, `common.ps1`, `docs/STRUCTURE.md`)**:
+   - Replaces v1.x's unconditional remote `Invoke-RestMethod ... | Invoke-Expression` loop and decomposes shared logic into 8 single-responsibility domain modules under `lib/*.ps1` (`< 600` lines each, imported via `Import-ContestLibraryModule` in `< 300`-line `common.ps1`).
+   - **Local Mode**: When run from a local checkout or USB drive (`$PSScriptRoot` contains all root module `.ps1` and `lib/*.ps1` files) and `-UseRemote` is not set, modules are validated and dot-sourced directly from `$PSScriptRoot`.
+   - **Remote Stage Mode (`irm ... | iex`)**: Downloads required root `.ps1` and `lib/*.ps1` scripts once into `$Root\scripts` and `$Root\scripts\lib` (`C:\CPTools\scripts`, cached via `$Script:StagedScriptPaths`) with retry, UTF-8 stream decoding, and PowerShell AST syntax validation (`[System.Management.Automation.Language.Parser]::ParseFile`), then dot-sources them from disk.
 2. **100% 7-Bit ASCII `.ps1` Source + Explicit UTF-8 I/O & PS 5.1 JSON Safety (`S-19`, `S-20`)**:
-   - All 12 `.ps1` files are UTF-8 without BOM AND strictly 7-bit ASCII (`< 0x80`) so Windows PowerShell 5.1 on Korean Windows (`CP949`) never suffers `UnicodeDecodeError` or quote corruption.
-   - All file reads use `Read-TextUtf8` / `Read-LinesUtf8` (`[System.IO.File]::ReadAllText(..., [System.Text.Encoding]::UTF8)`) and `ConvertFrom-JsonSafe` / `ConvertFrom-JsonArray` (stripping JSONC comments and preventing PS 5.1 `Object[][]` double-wrapped arrays).
+   - All 20 `.ps1` files (`12` root scripts + `8` `lib/*.ps1` modules) are UTF-8 without BOM AND strictly 7-bit ASCII (`< 0x80`) so Windows PowerShell 5.1 on Korean Windows (`CP949`) never suffers `UnicodeDecodeError` or quote corruption.
+   - All file reads use `Read-TextUtf8` / `Read-LinesUtf8` (`[System.IO.File]::ReadAllText(..., [System.Text.Encoding]::UTF8)`) and `ConvertFrom-JsonSafe` / `ConvertFrom-JsonArray` in `lib/core-primitives.ps1` (stripping JSONC comments and preventing PS 5.1 `Object[][]` double-wrapped arrays).
 3. **Centralized KST (`+09:00`) Schedule & `$PSBoundParameters`-Aware `CONTEST_*` Configuration (`common.ps1` + `install-env.ps1`)**:
    - Centralizes exam schedule defaults to **Monday, 2026-11-23 19:00–20:30 KST**:
      - `$ExamStart = '2026-11-23T19:00:00'`
@@ -48,17 +48,17 @@ Every feature across Round 1 (`F1`–`F16`) and Round 2 (`F17`–`F23`) is catal
 | F10 | **Clean Command Wrappers & Machine/User PATH Precedence (`setup-wrappers.ps1`, `common.ps1`)** | Add `@setlocal` to all `.cmd` wrappers; prevent `.cmd` wrappers from shadowing native `.exe` binaries (`$PythonDir` and `$UcrtBin` before `$ToolBin`); handle `Machine` vs `User` PATH shadowing with backup; verify `Get-Command` resolution in C++14, C++20, and Python3 smoke tests. | M1 | survey |
 | F11 | **Resilient IPv4+IPv6 AI Hosts Blocking (`ai-hosts-block.ps1`, `setup-ai-hosts.ps1`, `install-ai-hosts.ps1`)** | Add `[AllowEmptyString()]` to `Remove-ManagedHostsSectionFromText`; clear `ReadOnly` attribute and retry `hosts` writes 5 times on lock; block both `0.0.0.0` (IPv4) and `::` (IPv6) plus `www.` subdomain variants; stage `ai-hosts-block.ps1` to stable paths; remove `-NoExit` from `install-ai-hosts.ps1`; align `-Until` schedule to `2026-11-23 20:30`. | M1 | survey |
 | F12 | **Admin-Checked Complete Restoration (`restore-and-cleanup.ps1`, `setup-restore-task.ps1`)** | Enforce `Test-IsAdmin` + self-elevation at top of `restore-and-cleanup.ps1`; always unregister `ContestSetupRestoreAndCleanup`, `ContestSetupRestoreAiHostsBlock`, and `ContestSetupExamStartEnforcement`; restore PATH from snapshot AND run surgical cleanup; only uninstall Python if `InstallLocation` is inside `$Root`; terminate all processes with `.Path` inside `$Root`; write `remove-cptools.cmd` in UTF-8 (`chcp 65001 >nul`) and sequence shutdown after `rmdir`. | M1 | survey |
-| F13 | **JSON Serialization & Shared Helper Deduplication (`common.ps1`)** | Fix `Write-JsonUtf8NoBom` using `ConvertTo-Json -InputObject` so 0/1-element arrays are preserved; deduplicate shared functions across scripts. | M1 | survey |
-| F14 | **v2.0 Architecture & Speed Optimization Analysis Document (`ARCHITECTURE_V2.md` & `README.md`)** | Comprehensive Korean documentation in `ARCHITECTURE_V2.md` and `README.md` covering the `2026-11-23 (월) 19:00~20:30` exam schedule, root-cause analysis of instabilities (`S-01`–`S-28`), v2.0 architectural design, and quantified speed optimizations (`O1`–`O10`). | M1 / R2-M2 | survey |
-| F15 | **Requirement-Driven E2E & Verification Test Suite (`tests/run_tests.py`, `TEST_INFRA.md`, `TEST_READY.md`)** | Automated test runner (`tests/run_tests.py` + PowerShell/AST/behavioral verification harness) covering Tier 1 (Feature Coverage), Tier 2 (Boundary & Corner Cases), Tier 3 (Cross-Feature Combinations), and Tier 4 (Real-World Application Scenarios). | E2E | survey |
-| F16 | **Tier 5 Adversarial Coverage Hardening** | White-box adversarial testing to expose regex/quoting bugs, PS 5.1 encoding/JSON flaws, or state-corruption paths across all scripts. | M2 | survey |
+| F13 | **JSON Serialization & Shared Helper Deduplication (`common.ps1`, `lib/*.ps1`)** | Fix `Write-JsonUtf8NoBom` using `ConvertTo-Json -InputObject` so 0/1-element arrays are preserved; deduplicate shared functions across 8 `lib/*.ps1` modules (`core-primitives.ps1`, `browser-policies.ps1`, `vscode-workspace.ps1`, etc.). | M1 | survey |
+| F14 | **v2.0 Architecture & Speed Optimization Analysis Document (`ARCHITECTURE_V2.md`, `README.md`, `docs/STRUCTURE.md`)** | Comprehensive Korean documentation in `ARCHITECTURE_V2.md`, `README.md`, and `docs/STRUCTURE.md` covering the `2026-11-23 (월) 19:00~20:30` exam schedule, root-cause analysis of instabilities (`S-01`–`S-28`), v2.0 3-tier `lib/` architectural design, and quantified speed optimizations (`O1`–`O10`). | M1 / R2-M2 | survey |
+| F15 | **Requirement-Driven E2E & Verification Test Suite (`tests/run_tests.py`, `tests/contestsetup_tests/`, `TEST_INFRA.md`)** | Modular automated test runner (`tests/run_tests.py` + `tests/contestsetup_tests/` PowerShell/AST/behavioral/live-`pwsh` verification package) covering Tier 1 (Feature Coverage), Tier 2 (Boundary & Corner Cases), Tier 3 (Cross-Feature Combinations), and Tier 4 (Real-World Application Scenarios). | E2E | survey |
+| F16 | **Tier 5 Adversarial Coverage Hardening & Live `pwsh` E2E (`T5_01`–`T5_41`)** | White-box adversarial testing and live `pwsh 7.4+` E2E execution to expose regex/quoting bugs, PS 5.1 encoding/JSON flaws, or state-corruption paths across all 20 `.ps1` scripts. | M2 | survey |
 | F17 | **PS 5.1 Encoding, JSONC/Array & `PSCustomObject` Runtime Safety (`S-19`, `S-20`, `S-28`)** | 100% 7-bit ASCII `.ps1` files, `Read-TextUtf8`/`Read-LinesUtf8` replacing bare `Get-Content`, `ConvertFrom-JsonSafe`/`ConvertFrom-JsonArray` (no `Object[][]` or JSONC `//` crash), `Set-ObjectProperty` + post-write lock check in `Disable-VSCodeMarketplace`, space-safe `.cmd` execution, MSYS2 two-stage `SyncFirst` & PGP keyring recovery (`S-26`), Python `robocopy`/`._pth`/stdlib validation, VS `cl.exe` check. | R2-M1 | R2 survey 1, 3 |
 | F18 | **CLI/`CONTEST_*` Env Binding, Non-Destructive `-Mode Verify` & Exit Code Integrity (`S-21`, `S-27`)** | `$PSBoundParameters`-aware `CONTEST_*` env vars, `$PSCommandPath` StrictMode safety, early mutex `try/finally`, non-destructive `-Mode Verify` returning exit `1` without touching `hosts` or GUI modals, deep `Invoke-ContestEnvironmentAudit`. | R2-M1 | R2 survey 1, 2, 3 |
 | F19 | **VS Code `--locale ko`, Portable `vscode\data` Trap & Extension Allowlist (`S-22`, `S-27`)** | Pass `--locale ko` everywhere, initialize `vscode\data` portable directory to block direct `Code.exe` bypass, enforce strict extension allowlist, cover Taskbar pinned `.lnk` & `CommonDesktopDirectory`, harden `code.cmd`/`tasks.json`/`launch.json`. | R2-M1 | R2 survey 1, 2, 3 |
 | F20 | **Classroom Speed & Scale Optimizations (`O8`, `O9`, `O10`)** | `Expand-ArchiveFast` (`System32\tar.exe` -> `ZipFile` -> silent `Expand-Archive`), true concurrent `CopyToAsync` + post-download `Test-ValidCachedInstallerFile`, `-Mode ExportCache` + offline `vscode-extensions`/`.vsix` & `msys2-pkg` seeding, single-pass remote staging, cached `code.cmd --list-extensions`, parallel `-O0` smoke tests. | R2-M1 | R2 survey 1, 3 |
 | F21 | **SID-Aware `SYSTEM` Scheduled Tasks, Dual-Trigger/Late-Shutdown Guards & Complete Restore (`S-23`, `S-24`, `S-25`, `S-26`)** | `S-1-5-18` (`ServiceAccount`) task principal + `-WakeToRun`, `TargetUserSid`/`HKU\<SID>\Environment` `REG_EXPAND_SZ` PATH handling, KST `+09:00` offset parsing, `19:00` task `EndBoundary` + `-NotAfter`, `>25m` late-boot `-Shutdown` suppression, `Quote-ProcessArgument` task args, persistent student `AppData\Local\ContestSetup-Backups` solution backup before cleanup, `$env:TEMP` self-relocation, `ping`-based `remove-cptools.cmd` with post-`rmdir` shutdown, MSYS2 `.contest-bak` restoration, `-KeepVSCode` (`product.json` unlock) & `-MsysRoot` support. | R2-M2 | R2 survey 1, 2, 3 |
 | F22 | **Anti-Cheat Browser DoH/Copilot Lockdown & 2025–2026/KR AI Domain Expansion (`S-27`)** | Reversible 22-entry HKLM Browser DoH (`Chrome`, `Edge`, `Whale`, `Brave`, `Firefox` including `DnsOverHttpsTemplates`) & built-in AI/Copilot policy lockdown (`browser-policies.bak.json`), expanded 135+ frontier & Korean AI domain blocklist (`chat.com`, `claude.com`, `grok.com`, `x.ai`, `m365copilot.com`, `copilot.cloud.microsoft`, `genspark.ai`, `manus.im`, `aistudio.google.com`, `wrtn.ai`, `clova-x.naver.com`, `liner.com`, `lmarena.ai`, `duck.ai`, `qwen.ai`, `kimi.com`, `v0.dev`, `bolt.new`, `api2.cursor.sh`, `api.individual.githubcopilot.com`, ccSLD `.co.kr` `www.`), pre-write `-Until` validation, unconditional `hosts` fallback cleanup, fail-closed `-DeferAiBlockUntilExamStart`, synchronized docs & repo hygiene. | R2-M2 | R2 survey 2, 3 |
-| F23 | **Expanded 5-Tier Automated Verification & Mutation Suite (`tests/run_tests.py`, `TEST_INFRA.md`, `TEST_READY.md`)** | Upgrade `PowerShellInspector`, replace shallow assertions, add comprehensive Tier 1–4 tests for `F17`–`F22` AND first-class `--tier 5` white-box adversarial checks (`--tier 1\|2\|3\|4\|5\|all`). | R2-E2E | R2 survey 1, 2, 3 |
+| F23 | **Expanded 5-Tier Modular Verification, Mutation & Live `pwsh` E2E Suite (`tests/run_tests.py`, `tests/contestsetup_tests/`, `TEST_INFRA.md`)** | Decompose test runner into `tests/contestsetup_tests/`, upgrade `PowerShellInspector` for `lib/` expansion, add 291 total tests across Tiers 1–4 (`F1`–`F22`) and Tier 5 (`T5_01`–`T5_41`, including 7 Live `pwsh` Environment E2E tests `T5_35`–`T5_41`). | R2-E2E | R2 survey 1, 2, 3 |
 
 ## Milestones
 
@@ -126,11 +126,13 @@ ContestSetup/
 ├── README.md                    # User & proctor Korean guide (2026-11-23 19:00-20:30, ExportCache, 20:30 warning, runbook)
 ├── ARCHITECTURE_V2.md           # Comprehensive v2.0 engineering report (S-01..S-28, O1..O10, classroom scale)
 ├── PROJECT.md                   # Project architecture, feature inventory (F1..F23), milestones, contracts
-├── TEST_INFRA.md                # 5-tier E2E & adversarial test architecture and coverage mapping
+├── TEST_INFRA.md                # 5-tier E2E, adversarial & live pwsh test architecture (291 tests)
 ├── CHANGELOG.md                 # Keep a Changelog release notes (v2.0.0)
+├── docs/
+│   └── STRUCTURE.md             # 3-layer modular architecture & staging/load flow guide (Korean)
 ├── .github/workflows/ci.yml     # CI: PS 5.1 + pwsh AST parse on windows-latest, full test suite on ubuntu/windows
 ├── install-env.ps1              # v2.0 entry point (Local-First + Staged loader, ExportCache/Verify/Status/DryRun/Restore)
-├── common.ps1                   # v2.0 shared UTF-8/JSONC helpers, KST schedule, SID PATH, Expand-ArchiveFast, async downloader
+├── common.ps1                   # v2.0 config hub (<300L) & Import-ContestLibraryModule loader
 ├── setup-msys2.ps1              # v2.0 MSYS2 installer (fast-path skip, db.lck/PGP recovery, KR mirrors, two-stage SyncFirst, pkg cache)
 ├── setup-python.ps1             # v2.0 Python 3.10 installer (collision-safe, robocopy/stdlib/._pth validation, python3.exe)
 ├── setup-visualstudio.ps1       # v2.0 Visual Studio detector/installer (vswhere + cl.exe verification, opt-in -IncludeVisualStudio)
@@ -141,6 +143,25 @@ ContestSetup/
 ├── install-ai-hosts.ps1         # v2.0 standalone AI hosts bootstrapper (2026-11-23 20:30 default, child exit code propagation)
 ├── setup-restore-task.ps1       # v2.0 SYSTEM (S-1-5-18) Scheduled Task registration (WakeToRun, EndBoundary, Quote-ProcessArgument)
 ├── restore-and-cleanup.ps1      # v2.0 SID-aware restoration & cleanup (late-boot guard, code backup, TEMP self-relocation, MSYS2 restore)
-└── tests/                       # Requirement-driven 5-tier E2E & white-box adversarial verification suite
-    └── run_tests.py             # Main test runner executing Tiers 1-5 (--tier 1|2|3|4|5|all)
+├── lib/                         # Shared PowerShell domain library layer (8 modules, each <600L, 100% 7-bit ASCII)
+│   ├── core-primitives.ps1      # UTF-8 no-BOM I/O, JSONC parser, Quote-ProcessArgument, Resolve-VSCodeProductJsonPath, Test-PathInside
+│   ├── logging-and-manifest.ps1 # Transcript logging & install-manifest.json state checkpoint helpers
+│   ├── schedule-and-preflight.ps1 # KST (+09:00) schedule validation, HTTPS clock skew check, Invoke-PreflightChecks
+│   ├── download-and-archive.ps1 # Expand-ArchiveFast, Test-ValidCachedInstallerFile, async downloader, SHA256/Authenticode/winget
+│   ├── path-and-identity.ps1    # SID/profile resolution, HKU\<SID>\Environment REG_EXPAND_SZ PATH management & backups
+│   ├── environment-audit.ps1    # Read-only Invoke-ContestEnvironmentAudit engine (Status/Verify/DryRun + test override support)
+│   ├── browser-policies.ps1     # Canonical 22 browser DoH & AI registry policy specifications (13 core + 9 extended)
+│   └── vscode-workspace.ps1     # VS Code .lnk shortcut manifest, launcher, CLI wrapper, and default .vscode workspace configs
+└── tests/                       # Modular 5-tier verification, mutation & live pwsh E2E suite (291 tests)
+    ├── run_tests.py             # Slim CLI test runner entrypoint (<200L, --tier 1|2|3|4|5|all, --strict)
+    └── contestsetup_tests/      # Modular test package
+        ├── __init__.py          # Shared constants (PS1_FILES, EXPECTED_LIB_PS1_FILES), TestCase/TestSkipped, suite builder
+        ├── inspector.py         # PowerShellInspector (lib/ effective code expansion, AST/lexical/7-bit ASCII inspector)
+        ├── simulator.py         # BehavioralSimulator (Win32 quoting, JSONC, KST schedule, hosts, browser policy & backup models)
+        ├── tier1_features.py    # Tier 1: Feature coverage (100 tests)
+        ├── tier2_boundaries.py  # Tier 2: Boundary & corner cases (100 tests)
+        ├── tier3_contracts.py   # Tier 3: Cross-feature & script-to-script contracts (34 tests)
+        ├── tier4_scenarios.py   # Tier 4: Real-world exam lifecycle scenarios (16 tests)
+        ├── tier5_adversarial.py # Tier 5: White-box adversarial, mutation & AST probes (34 tests, T5_01-T5_34)
+        └── live_pwsh_e2e.py     # Tier 5: Live pwsh 7.4+ E2E execution & structural modularity gate (7 tests, T5_35-T5_41)
 ```

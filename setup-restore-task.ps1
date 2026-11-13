@@ -208,6 +208,34 @@ if (-not $StagedRestoreFromLocal)
 
 if (-not (Test-Path -LiteralPath $RestoreScriptPath)) { throw "Failed to stage $RestoreScriptPath" }
 
+# Stage shared library modules alongside restore-and-cleanup.ps1 so Scheduled Task execution is self-contained
+$RootLibDir = Join-Path $RootClean 'lib'
+New-Item -ItemType Directory -Force -Path $RootLibDir | Out-Null
+foreach ($LibMod in @('core-primitives.ps1', 'browser-policies.ps1'))
+{
+  $LibCandidates = @()
+  if ($PSScriptRoot) { $LibCandidates += (Join-Path (Join-Path $PSScriptRoot 'lib') $LibMod) }
+  if (Get-Variable -Name 'ScriptStageDir' -ErrorAction SilentlyContinue) { $LibCandidates += (Join-Path (Join-Path $ScriptStageDir 'lib') $LibMod) }
+  if (-not [string]::IsNullOrWhiteSpace($env:CONTEST_LIB_DIR)) { $LibCandidates += (Join-Path $env:CONTEST_LIB_DIR $LibMod) }
+  $FoundLib = $LibCandidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+  $DestLibFile = Join-Path $RootLibDir $LibMod
+  if (-not [string]::IsNullOrWhiteSpace($FoundLib))
+  {
+    if ([IO.Path]::GetFullPath($FoundLib) -ine [IO.Path]::GetFullPath($DestLibFile))
+    {
+      Copy-Item -LiteralPath $FoundLib -Destination $DestLibFile -Force
+    }
+  }
+  elseif (-not (Test-Path -LiteralPath $DestLibFile))
+  {
+    $LibUrl = "$RawBase/lib/$LibMod"
+    if (Get-Command Invoke-DownloadFile -ErrorAction SilentlyContinue)
+    {
+      Invoke-DownloadFile -Url $LibUrl -OutFile $DestLibFile
+    }
+  }
+}
+
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 
 if ($SkipRestoreTask -and (-not $DeferAiBlockValue))
@@ -274,8 +302,8 @@ $ExamEndIso = if ($null -ne $ScheduleInfo.PSObject.Properties['ExamEndIso'] -and
   (New-Object System.DateTimeOffset($ScheduleInfo.ExamEnd)).ToString('o')
 }
 
-$PsExecutable = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-if (-not (Test-Path -LiteralPath $PsExecutable))
+$PsExecutable = if (-not [string]::IsNullOrWhiteSpace($env:SystemRoot)) { Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' } else { '' }
+if ([string]::IsNullOrWhiteSpace($PsExecutable) -or (-not (Test-Path -LiteralPath $PsExecutable)))
 {
   if (Get-Command Get-PreferredPowerShell -ErrorAction SilentlyContinue)
   {

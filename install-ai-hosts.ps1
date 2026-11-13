@@ -69,8 +69,11 @@ function Test-IsAdmin
 
 function Get-PreferredPowerShell
 {
-  $WinPs = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  if (Test-Path -LiteralPath $WinPs) { return $WinPs }
+  if (-not [string]::IsNullOrWhiteSpace($env:SystemRoot))
+  {
+    $WinPs = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path -LiteralPath $WinPs) { return $WinPs }
+  }
   $PwshCmds = @(Get-Command pwsh.exe -All -ErrorAction SilentlyContinue | Where-Object {
     $_.Source -and ($_.Source -notmatch '\\WindowsApps\\')
   })
@@ -151,6 +154,35 @@ try
       throw "Download failed: $AiScriptPath ($ErrDetail)"
     }
     Write-Host "Downloaded: $AiScriptPath" -ForegroundColor Green
+  }
+
+  $BootstrapLibDir = Join-Path $BootstrapDir 'lib'
+  New-Item -ItemType Directory -Force -Path $BootstrapLibDir | Out-Null
+  foreach ($LibMod in @('core-primitives.ps1', 'browser-policies.ps1'))
+  {
+    $LocalLib = if ($PSScriptRoot) { Join-Path (Join-Path $PSScriptRoot 'lib') $LibMod } else { '' }
+    $DestBootstrapLib = Join-Path $BootstrapLibDir $LibMod
+    if (-not [string]::IsNullOrWhiteSpace($LocalLib) -and (Test-Path -LiteralPath $LocalLib))
+    {
+      Copy-Item -LiteralPath $LocalLib -Destination $DestBootstrapLib -Force
+    }
+    else
+    {
+      $LibUrl = "$RawBase/lib/$LibMod"
+      $CacheBustLib = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      $OldProgLib = $ProgressPreference
+      try
+      {
+        $ProgressPreference = 'SilentlyContinue'
+        $LibParams = @{ Uri = "${LibUrl}?cb=$CacheBustLib"; OutFile = $DestBootstrapLib; ErrorAction = 'Stop' }
+        if ($PSVersionTable.PSVersion.Major -le 5) { $LibParams['UseBasicParsing'] = $true }
+        Invoke-WebRequest @LibParams
+      }
+      finally
+      {
+        $ProgressPreference = $OldProgLib
+      }
+    }
   }
 
   $PowerShellExe = Get-PreferredPowerShell
