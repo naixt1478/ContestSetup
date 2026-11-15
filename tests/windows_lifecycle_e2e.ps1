@@ -609,7 +609,8 @@ Write-Output 'STUDENT_TOOLCHAIN_OK'
   Assert-True ((Read-Utf8TextSafe -Path $bakCpp) -match 'CONTEST_CPP20_OK') 'Backed-up C++20 source content mismatch'
   Assert-True ((Read-Utf8TextSafe -Path $bakPy) -match 'CONTEST_PY310_OK') 'Backed-up Python3 source content mismatch'
   $exeInBak = @(Get-ChildItem -LiteralPath $latestBak -Filter '*.exe' -Recurse -File -ErrorAction SilentlyContinue)
-  Assert-True ($exeInBak.Count -eq 0) "Unexpected .exe binary found in workspace backup: $($exeInBak.Name -join ',')"
+  $exeNamesInBak = @($exeInBak | ForEach-Object { $_.Name }) -join ','
+  Assert-True ($exeInBak.Count -eq 0) "Unexpected .exe binary found in workspace backup: $exeNamesInBak"
 
   # 6.3 All 3 Scheduled Tasks unregistered
   foreach ($tn in @('ContestSetupRestoreAndCleanup', 'ContestSetupExamStartEnforcement', 'ContestSetupRestoreAiHostsBlock')) {
