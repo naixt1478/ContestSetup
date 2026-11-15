@@ -823,8 +823,13 @@ def register_tests(ps: PowerShellInspector, sim: BehavioralSimulator, repo_root:
                 if mutate:
                     assert mutated_any, "Failed to locate guarded Get-Variable block in common.ps1 or lib/*.ps1 for mutation"
                 env = dict(os.environ, CS_REGRESSION_COMMON=str(src))
+                ps_args = [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive"]
+                if os.name == "nt":
+                    ps_args += ["-ExecutionPolicy", "Bypass"]
+                ps_args += ["-Command", probe]
                 return subprocess.run(
-                    [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-WorkingDirectory", str(tmp_path), "-Command", probe],
+                    ps_args,
+                    cwd=str(tmp_path),
                     capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, env=env,
                 )
 
@@ -979,8 +984,8 @@ foreach ($mc in $msysCmds) {
     }
 }
 
-# Live Legacy native argument passing check against bash if available (Linux/macOS or Git/MSYS bash)
-if (Test-Path -LiteralPath '/bin/bash') {
+# Live Legacy native argument passing check against bash if available (Linux/macOS or Git/MSYS bash) on PS 7.3+
+if ((Get-Variable -Name 'PSNativeCommandArgumentPassing' -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath '/bin/bash')) {
     $oldPassing = $PSNativeCommandArgumentPassing
     $legTmp = Join-Path ([IO.Path]::GetTempPath()) ('cs_t5_34_leg_' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $legTmp | Out-Null
@@ -1026,8 +1031,12 @@ Write-Output ("AST_OK:{0}|DEFAULT:{1}|OVERRIDE:{2}/{3}|{4}" -f $files.Count, $ba
                 CS_REPO_ROOT=str(REPO_ROOT),
                 CS_PS1_LIST=";".join(all_files),
             )
+            ps_args = [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive"]
+            if os.name == "nt":
+                ps_args += ["-ExecutionPolicy", "Bypass"]
+            ps_args += ["-File", str(probe_file)]
             res = subprocess.run(
-                [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(probe_file)],
+                ps_args,
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, env=env,
             )
             assert res.returncode == 0, f"T5_34 pwsh audit failed (rc={res.returncode}): {res.stderr.strip()[-600:]}\n{res.stdout.strip()[-600:]}"

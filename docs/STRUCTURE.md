@@ -12,8 +12,8 @@ ContestSetup v2.0은 단일 거대 스크립트의 중복과 결합도를 제거
    - 사용자 CLI / `irm | iex` 진입점(`install-env.ps1`, `install-ai-hosts.ps1`), 설정 및 로더 허브(`common.ps1`), 단계별 프로비저닝 모듈(`setup-*.ps1`), 독립 실행 및 예약 작업용 차단/복원 엔진(`ai-hosts-block.ps1`, `restore-and-cleanup.ps1`)으로 구성됩니다.
 2. **공유 도메인 라이브러리 계층 (`/lib/*.ps1`, 8개 파일, 각 600줄 미만)**
    - UTF-8 무-BOM 입출력, JSONC 파서, Win32 인자 이스케이프, 상태 매니페스트, KST 시험 일정 검증, 병렬 다운로드/해시/서명 검증, 사용자 SID 기반 레지스트리 PATH 관리, 환경 감사, 22개 브라우저 DoH/AI 정책 명세, VS Code 격리 워크스페이스/바로가기 관리 등 모든 핵심 로직의 **단일 진실 공급원(Single Source of Truth)** 역할을 수행합니다.
-3. **모듈형 정적·시뮬레이션·실행 검증 계층 (`/tests/`, 진입점 200줄 미만 + 패키지 9개 모듈)**
-   - AST/바이트 검사기(`inspector.py`), 핵심 알고리즘 시뮬레이터(`simulator.py`), Tier 1~5 테스트 모듈, 그리고 실제 `pwsh 7.4+` 프로세스에서 PowerShell 함수를 직접 호출해 검증하는 Live E2E 스위트(`live_pwsh_e2e.py`)로 분리되어 총 291개 테스트를 수행합니다.
+3. **모듈형 정적·시뮬레이션·실행 검증 계층 (`/tests/`, 진입점 200줄 미만 + 패키지 9개 모듈 + Windows 실환경 E2E 하네스)**
+   - AST/바이트 검사기(`inspector.py`), 핵심 알고리즘 시뮬레이터(`simulator.py`), Tier 1~5 테스트 모듈, 실제 `pwsh` / Windows PowerShell 5.1 프로세스에서 PowerShell 함수를 직접 호출해 검증하는 Live E2E 스위트(`live_pwsh_e2e.py`, 총 292개 테스트), 그리고 GitHub Actions `windows-latest`에서 실제 전체 설치부터 `SYSTEM` 예약 작업 및 수동 복원까지 검증하는 `tests/windows_lifecycle_e2e.ps1`로 구성됩니다.
 
 ---
 
@@ -46,7 +46,8 @@ ContestSetup/
 │   └── STRUCTURE.md                 # 저장소 모듈 아키텍처 및 데이터 흐름 문서 (본 문서)
 ├── tests/
 │   ├── run_tests.py                 # 경량 CLI 테스트 러너 진입점 (< 200줄)
-│   └── contestsetup_tests/          # 모듈형 검증 스위트 패키지 (291개 테스트)
+│   ├── windows_lifecycle_e2e.ps1    # GitHub Actions windows-latest 실제 전체 설치 -> 학생 실행 -> SYSTEM 자동/수동 복원 E2E 하네스
+│   └── contestsetup_tests/          # 모듈형 검증 스위트 패키지 (292개 테스트)
 │       ├── __init__.py              # 공통 상수(PS1_FILES, EXPECTED_LIB_PS1_FILES), TestCase 모델 및 스위트 빌더
 │       ├── inspector.py             # PowerShellInspector (lib/ 확장 유효 코드 해석, 7-bit ASCII/구문 균형 검증)
 │       ├── simulator.py             # BehavioralSimulator (쿼팅, JSONC, KST 일정, 브라우저 정책, 백업 시뮬레이션)
@@ -55,7 +56,7 @@ ContestSetup/
 │       ├── tier3_contracts.py       # Tier 3: 스크립트 간 파라미터·매니페스트·정책 정합성 계약 검증 (34개 테스트)
 │       ├── tier4_scenarios.py       # Tier 4: 대회 운영 종단간 라이프사이클 시나리오 검증 (16개 테스트)
 │       ├── tier5_adversarial.py     # Tier 5: 적대적 변이·인젝션·동시성·PS 5.1 AST 감사 (34개 테스트, T5_01~T5_34)
-│       └── live_pwsh_e2e.py         # Tier 5 확장: Live pwsh 7.4+ 실제 함수 실행 E2E 및 구조 게이트 (7개 테스트, T5_35~T5_41)
+│       └── live_pwsh_e2e.py         # Tier 5 확장: Live PowerShell 실제 함수 실행 E2E 및 구조·CI 계약 게이트 (8개 테스트, T5_35~T5_42)
 ├── README.md                        # 사용자 설치·운영 매뉴얼
 ├── ARCHITECTURE_V2.md               # v2.0 아키텍처 설계 및 안정성 결함 해결 명세 (S-01~S-28, O1~O10)
 ├── PROJECT.md                       # 프로젝트 요구사항, CLI 파라미터/환경변수 규약 및 불변 조건
@@ -184,7 +185,8 @@ flowchart TD
 | `tests/contestsetup_tests/tier3_contracts.py` | **Tier 3 (34개 테스트)**: 21개 CLI 파라미터/환경변수 4자 동기화, 6개 스크립트 간 호출 간선 AST 검증, 22개 브라우저 정책 패리티(`T3_25`), VS Code 1.97+ 경로 해석 계약 검증 |
 | `tests/contestsetup_tests/tier4_scenarios.py` | **Tier 4 (16개 테스트)**: 사전 배포, 시험 진행, 오프라인 캐시 시딩, 지연 차단, 시험 종료 후 복원 등 종단간 대회 운영 시나리오 검증 |
 | `tests/contestsetup_tests/tier5_adversarial.py` | **Tier 5 기본 (34개 테스트, `T5_01`~`T5_34`)**: 퍼징, 캡티브 포털 캐시 오염 방어, `HKU\.DEFAULT` 쓰기 금지, 뮤텍스 데드락 방지, 얕은 스코프 `irm \| iex` 회귀(`T5_33`), 전 스크립트 PS 5.1 호환성 및 스위치 바인딩 AST 감사(`T5_34`) |
-| `tests/contestsetup_tests/live_pwsh_e2e.py` | **Tier 5 Live E2E (7개 테스트, `T5_35`~`T5_41`)**: 실제 `pwsh` 런타임에서 `common.ps1` + `lib/*` + `Invoke-ContestEnvironmentAudit`(`T5_35`), `setup-vscode.ps1`(`T5_36`), `setup-wrappers.ps1`(`T5_37`), 오프라인 설치 파일/MSYS2 패키지 캐시 검증 및 시딩(`T5_38`), `ai-hosts-block.ps1`(`T5_39`), `restore-and-cleanup.ps1`(`T5_40`)을 직접 실행 검증하고, 모듈 라인 수 상한 및 중복 제로 아키텍처 계약(`T5_41`)을 강제 |
+| `tests/windows_lifecycle_e2e.ps1` | GitHub Actions `windows-latest`에서 실제 MSYS2/Python/VS Code/hosts/HKLM 정책/단축아이콘/예약 작업 설치, 학생 `g++20`/`python3` 실행, `ExportCache`, `SYSTEM` 자동 복원 및 수동 `-Mode Restore`까지 전 주기를 검증 |
+| `tests/contestsetup_tests/live_pwsh_e2e.py` | **Tier 5 Live E2E (8개 테스트, `T5_35`~`T5_42`)**: 실제 `pwsh`/PS 5.1 런타임에서 `common.ps1` + `lib/*` + `Invoke-ContestEnvironmentAudit`(`T5_35`), `setup-vscode.ps1`(`T5_36`), `setup-wrappers.ps1`(`T5_37`), 오프라인 설치 파일/MSYS2 패키지 캐시 검증 및 시딩(`T5_38`), `ai-hosts-block.ps1`(`T5_39`), `restore-and-cleanup.ps1`(`T5_40`)을 직접 실행 검증하고, 모듈 라인 수 상한/중복 제로 게이트(`T5_41`) 및 Windows Full-Lifecycle CI/E2E 계약(`T5_42`)을 강제 |
 
 ---
 

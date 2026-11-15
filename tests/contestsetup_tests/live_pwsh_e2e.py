@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tier 5 Live PowerShell 7.4+ Environment Setup E2E Suite (T5_35-T5_41)."""
+"""Tier 5 Live PowerShell 7.4+ & 5.1 Environment Setup E2E Suite (T5_35-T5_42)."""
 from __future__ import annotations
 
 import json
@@ -96,8 +96,12 @@ def _run_pwsh_script(pwsh: str, ps_code: str, prefix: str, extra_env: dict[str, 
         env = dict(os.environ, CS_REPO_ROOT=str(REPO_ROOT))
         if extra_env:
             env.update(extra_env)
+        ps_args = [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive"]
+        if os.name == "nt":
+            ps_args += ["-ExecutionPolicy", "Bypass"]
+        ps_args += ["-File", str(script_file)]
         return subprocess.run(
-            [pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(script_file)],
+            ps_args,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -421,17 +425,21 @@ Import-ContestScriptFunctionsAst -ScriptPath (Join-Path $env:CS_REPO_ROOT 'setup
 New-Item -ItemType Directory -Force -Path $UcrtBin, $MsysUsrBin, $PythonDir, $ToolBin, $ContestWorkspaceDir | Out-Null
 $onWin = ([System.Environment]::OSVersion.Platform -eq 'Win32NT')
 if ($onWin) {
+    $gppCmdObj = Get-Command g++ -ErrorAction SilentlyContinue | Select-Object -First 1
+    $gppCmdSrc = if ($null -ne $gppCmdObj) { $gppCmdObj.Source } else { '' }
     $gppCandidates = @(
         'C:\msys64\ucrt64\bin\g++.exe',
         'C:\msys64\mingw64\bin\g++.exe',
         'C:\mingw64\bin\g++.exe',
-        (Get-Command g++ -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        $gppCmdSrc
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) }
     $realGpp = $gppCandidates | Select-Object -First 1
     if ([string]::IsNullOrWhiteSpace($realGpp)) { throw "No g++.exe found on Windows runner" }
-    $realPy = (Get-Command python -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    $pyCmdObj = Get-Command python -ErrorAction SilentlyContinue | Select-Object -First 1
+    $realPy = if ($null -ne $pyCmdObj) { $pyCmdObj.Source } else { '' }
     if ([string]::IsNullOrWhiteSpace($realPy)) {
-        $realPy = (Get-Command python3 -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        $py3CmdObj = Get-Command python3 -ErrorAction SilentlyContinue | Select-Object -First 1
+        $realPy = if ($null -ne $py3CmdObj) { $py3CmdObj.Source } else { '' }
     }
     if ([string]::IsNullOrWhiteSpace($realPy)) { throw "No python found on Windows runner" }
 } else {
@@ -641,7 +649,7 @@ $HostsFilePath = $env:CS_TEST_HOSTS
 
 $origHosts = "127.0.0.1 localhost`r`n::1 localhost`r`n10.0.0.5 judge.internal.ac.kr`r`n"
 Write-TextUtf8NoBom -Path $HostsFilePath -Content $origHosts
-$origBytes = [System.IO.File]::ReadAllBytes($HostsFilePath)
+$origSha = (Get-FileHash -LiteralPath $HostsFilePath -Algorithm SHA256).Hash
 
 $defaultDomains = @(Get-BlockDomains)
 if ($defaultDomains.Count -lt 230) {
@@ -706,9 +714,7 @@ if ($afterPass2 -notmatch '10\.0\.0\.5 judge\.internal\.ac\.kr') {
 # Restore original hosts content and verify byte-for-byte identity
 $restoredText = (Remove-ManagedHostsSectionFromText -HostsText $afterPass2) + "`r`n"
 Write-HostsFileWithRetry -Path $HostsFilePath -Content $restoredText
-$restoredBytes = [System.IO.File]::ReadAllBytes($HostsFilePath)
-$origSha = (Get-FileHash -InputStream ([System.IO.MemoryStream]::new($origBytes)) -Algorithm SHA256).Hash
-$restSha = (Get-FileHash -InputStream ([System.IO.MemoryStream]::new($restoredBytes)) -Algorithm SHA256).Hash
+$restSha = (Get-FileHash -LiteralPath $HostsFilePath -Algorithm SHA256).Hash
 if ($origSha -ne $restSha) {
     throw "Restored hosts SHA256 ($restSha) != original ($origSha)"
 }
@@ -934,5 +940,88 @@ Write-Output ("T5_40_OK:BAK={0}|UNLOCKED=True|PATH_USER={1}|LATE26={2}" -f ($bac
             assert raw_bytes.endswith(b"\n"), f"{fname} does not end with LF"
             ok, msg = ps.validate_syntax_balance(ps.read_text(fname), fname)
             assert ok, msg
+
+    @register("T5_42", 5, "F3+F12+F21+F23", "Windows Full-Lifecycle CI/CD & E2E Harness Contract Gate (.github/workflows/ci.yml + tests/windows_lifecycle_e2e.ps1)")
+    def _():
+        ci_rel = ".github/workflows/ci.yml"
+        harness_rel = "tests/windows_lifecycle_e2e.ps1"
+        ci_path = repo_root / ci_rel
+        harness_path = repo_root / harness_rel
+        assert ci_path.is_file(), f"Missing CI workflow: {ci_rel}"
+        assert harness_path.is_file(), f"Missing Windows full-lifecycle E2E harness: {harness_rel}"
+
+        ci_text = ps.read_text(ci_rel)
+        assert "windows-latest" in ci_text, f"{ci_rel} must target windows-latest"
+        assert "windows-lifecycle-e2e:" in ci_text, f"{ci_rel} must define windows-lifecycle-e2e job"
+        assert "CONTEST_PWSH:" in ci_text and "powershell.exe" in ci_text, (
+            f"{ci_rel} must run tests/run_tests.py under both pwsh and Windows PowerShell 5.1 (CONTEST_PWSH)"
+        )
+        assert "windows_lifecycle_e2e.ps1" in ci_text and "-AllowDestructiveSystemChanges" in ci_text, (
+            f"{ci_rel} must invoke tests/windows_lifecycle_e2e.ps1 -AllowDestructiveSystemChanges"
+        )
+
+        # S-19 + StrictMode 2.0 + syntax balance on the Windows E2E harness itself (CI parses all *.ps1 under PS 5.1 & PS 7)
+        ps.assert_pure_ascii_ps1(harness_rel)
+        harness_bytes = ps.read_bytes(harness_rel)
+        assert not harness_bytes.startswith(b"\xef\xbb\xbf"), f"{harness_rel} has UTF-8 BOM"
+        assert b"\r\n" not in harness_bytes, f"{harness_rel} contains CRLF"
+        assert harness_bytes.endswith(b"\n"), f"{harness_rel} does not end with LF"
+        harness_text = ps.read_text(harness_rel)
+        ok, msg = ps.validate_syntax_balance(harness_text, harness_rel)
+        assert ok, msg
+        assert "Set-StrictMode -Version 2.0" in harness_text, f"{harness_rel} must enforce Set-StrictMode -Version 2.0"
+
+        required_harness_markers = (
+            "[switch]$AllowDestructiveSystemChanges",
+            "-DeferAiBlockUntilExamStart",
+            "ContestSetupExamStartEnforcement",
+            "-NoRestoreShutdown",
+            "g++20",
+            "python3",
+            "ContestSetupRestoreAndCleanup",
+            "browser-policies.bak.json",
+            "ContestSetup-Workspace-Backup-",
+            "install-ai-hosts.ps1",
+        )
+        for marker in required_harness_markers:
+            assert marker in harness_text, f"{harness_rel} missing full-lifecycle coverage for '{marker}'"
+
+        for mode_name in ("DryRun", "Status", "Verify", "ExportCache", "Restore"):
+            mode_pat = rf"['\"]?-Mode['\"]?(?:,\s*|\s+)['\"]?{mode_name}['\"]?"
+            assert re.search(mode_pat, harness_text), (
+                f"{harness_rel} missing full-lifecycle invocation of '-Mode {mode_name}'"
+            )
+
+        pwsh = find_pwsh()
+        if pwsh is not None:
+            ast_probe = r"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CS_HARNESS_PATH, [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) {
+    throw "AST parse error in windows_lifecycle_e2e.ps1: $($errors[0].Message)"
+}
+$ps7Nodes = $ast.FindAll({
+    param($n)
+    $n.GetType().Name -in @(
+        'TernaryExpressionAst', 'PipelineChainAst', 'NullCoalescingExpressionAst',
+        'NullConditionalExpressionAst', 'NullConditionalMemberExpressionAst', 'NullConditionalIndexExpressionAst'
+    )
+}, $true)
+if ($ps7Nodes.Count -gt 0) {
+    throw "PS 7-only syntax in windows_lifecycle_e2e.ps1:$($ps7Nodes[0].Extent.StartLineNumber)"
+}
+Write-Output 'T5_42_AST_OK'
+"""
+            res = _run_pwsh_script(
+                pwsh,
+                ast_probe,
+                prefix="cs_t5_42_",
+                extra_env={"CS_HARNESS_PATH": str(harness_path)},
+            )
+            assert res.returncode == 0 and "T5_42_AST_OK" in res.stdout, (
+                f"T5_42 AST check failed: {res.stderr.strip()[-600:]}\n{res.stdout.strip()[-600:]}"
+            )
 
     return tests

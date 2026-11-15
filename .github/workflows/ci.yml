@@ -71,9 +71,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run all tiers (skips are failures)
+      - name: Run all tiers under PowerShell 7 (skips are failures)
         shell: pwsh
         run: python -B tests/run_tests.py --tier all --strict
+
+      - name: Run all tiers under Windows PowerShell 5.1 (skips are failures)
+        shell: cmd
+        env:
+          CONTEST_PWSH: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+        run: python -B tests/run_tests.py --tier all --strict
+
+  windows-lifecycle-e2e:
+    name: Windows - Full Setup & Post-Contest Restore E2E
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Disable CRLF conversion
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v6
+
+      - name: Run full Windows contest setup & post-contest restore E2E
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tests\windows_lifecycle_e2e.ps1 -AllowDestructiveSystemChanges
 
   ubuntu-tests:
     name: Ubuntu - full test suite (with pwsh)

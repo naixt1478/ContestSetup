@@ -4,7 +4,7 @@
 - **Project**: ContestSetup v2.0 (Modular, Idempotent, Classroom-Scale Windows PowerShell Provisioning & Anti-Cheat Suite for the **Monday, 2026-11-23 19:00–20:30 KST** Exam)
 - **Test Runner**: `python3 -B tests/run_tests.py` (slim `< 200`-line CLI entrypoint backed by `tests/contestsetup_tests/`)
 - **Supported CLI Flags**: `--tier 1|2|3|4|5|all` (default: `all`), `--verbose` / `-v`, `--json`, `--strict`
-- **Verification Engine**: Hybrid PowerShell AST/Lexical/Parameter-Set Contract Inspector (`PowerShellInspector` in `tests/contestsetup_tests/inspector.py`, with cycle-safe `Import-ContestLibraryModule` expansion across all 20 `.ps1` files: `12` root + `8` `lib/*.ps1`) + Python Behavioral Reference Model & `.ps1` Constant/AST-Coupled State Verifier (`BehavioralSimulator` in `tests/contestsetup_tests/simulator.py`) + White-Box Adversarial & Mutation Hardening (`tests/contestsetup_tests/tier5_adversarial.py`, `T5_01`–`T5_34`) + Live `pwsh 7.4+` Environment Setup E2E Suite & Modularity Gate (`tests/contestsetup_tests/live_pwsh_e2e.py`, `T5_35`–`T5_41`; skipped only when no `pwsh` is found, failed under `--strict`). Every test inspects the actual `.ps1` scripts (`/*.ps1` and `lib/*.ps1`), `docs/STRUCTURE.md`, `README.md`, `ARCHITECTURE_V2.md`, `PROJECT.md`, `.editorconfig`, and `.gitignore` in the repository root and executes deterministic simulations or live `pwsh` invocations against isolated temporary directory trees.
+- **Verification Engine**: Hybrid PowerShell AST/Lexical/Parameter-Set Contract Inspector (`PowerShellInspector` in `tests/contestsetup_tests/inspector.py`, with cycle-safe `Import-ContestLibraryModule` expansion across all 20 `.ps1` files: `12` root + `8` `lib/*.ps1`) + Python Behavioral Reference Model & `.ps1` Constant/AST-Coupled State Verifier (`BehavioralSimulator` in `tests/contestsetup_tests/simulator.py`) + White-Box Adversarial & Mutation Hardening (`tests/contestsetup_tests/tier5_adversarial.py`, `T5_01`–`T5_34`) + Live `pwsh 7.4+` / Windows PowerShell 5.1 Environment Setup E2E Suite & CI Contract Gate (`tests/contestsetup_tests/live_pwsh_e2e.py`, `T5_35`–`T5_42`; skipped only when no `pwsh` is found, failed under `--strict`) + Real Windows Full-Lifecycle Setup & Post-Contest Restore E2E Harness (`tests/windows_lifecycle_e2e.ps1` executed on `windows-latest` by `.github/workflows/ci.yml`). Every unit/simulation test inspects the actual `.ps1` scripts (`/*.ps1` and `lib/*.ps1`), `docs/STRUCTURE.md`, `README.md`, `ARCHITECTURE_V2.md`, `PROJECT.md`, `.editorconfig`, and `.gitignore` in the repository root and executes deterministic simulations or live PowerShell invocations against isolated temporary directory trees.
 
 ---
 
@@ -27,18 +27,18 @@
 | F13 | **JSON Serialization & Shared Helper Deduplication (`S-18`, `lib/`)** | `PROJECT.md` | `T1_F13_01`–`05` (5) | `T2_F13_01`–`05` (5) | `T3_06`, `T3_09`, `T3_13`, `T3_16` | `T4_01`, `T4_02`, `T4_09` | `T5_02`, `T5_03`, `T5_26`, `T5_41` |
 | F14 | **v2.0 Architecture & Speed Optimization Docs (`ARCHITECTURE_V2.md`, `README.md`, `docs/STRUCTURE.md`)** | `PROJECT.md` | `T1_F14_01`–`05` (5) | `T2_F14_01`–`05` (5) | `T3_12`, `T3_15`, `T3_28` | `T4_01`, `T4_09` | `T5_20`, `T5_41` |
 | F15 | **Requirement-Driven E2E & Verification Suite (`tests/run_tests.py`, `tests/contestsetup_tests/`)** | `PROJECT.md` | Tiers 1–4 Baseline (168) | Tiers 1–4 Baseline | Tiers 1–4 Baseline | Tiers 1–4 Baseline | `T5_05`, `T5_06`, `T5_31`, `T5_41` |
-| F16 | **Tier 5 Adversarial Coverage Hardening & Live E2E** | `PROJECT.md` | Integrated in `F17`–`F22` | Integrated in `F17`–`F22` | `T3_19`–`T3_34` | `T4_11`–`T4_16` | `T5_01`–`T5_41` (41) |
+| F16 | **Tier 5 Adversarial Coverage Hardening & Live E2E** | `PROJECT.md` | Integrated in `F17`–`F22` | Integrated in `F17`–`F22` | `T3_19`–`T3_34` | `T4_11`–`T4_16` | `T5_01`–`T5_42` (42) |
 | F17 | **PS 5.1 Encoding, JSONC/Array & `PSCustomObject` Safety (`S-19`, `S-20`, `S-26`, `S-28`)** | R2 Survey 1, 3 | `T1_F17_01`–`05` (5) | `T2_F17_01`–`05` (5) | `T3_24`, `T3_34` | `T4_03`, `T4_04` | `T5_02`–`T5_04`, `T5_12`, `T5_18`, `T5_22`–`T5_26`, `T5_32`, `T5_41` |
 | F18 | **CLI/`CONTEST_*` Env Binding, Non-Destructive `-Mode Verify` & Exit Codes (`S-21`)** | R2 Survey 1, 2, 3 | `T1_F18_01`–`05` (5) | `T2_F18_01`–`05` (5) | `T3_01`, `T3_08`, `T3_19`–`T3_21`, `T3_23`, `T3_26`, `T3_28`, `T3_29` | `T4_09`, `T4_11`, `T4_14`, `T4_15` | `T5_06`, `T5_08`, `T5_11`, `T5_17`, `T5_33`, `T5_34`, `T5_35` |
 | F19 | **VS Code `--locale ko`, Portable `vscode\data` Trap & Extension Allowlist (`S-22`, `S-27`)** | R2 Survey 1, 2, 3 | `T1_F19_01`–`05` (5) | `T2_F19_01`–`05` (5) | `T3_10`, `T3_20`, `T3_23`, `T3_29` | `T4_01`, `T4_11`, `T4_15` | `T5_12`, `T5_13`, `T5_14`, `T5_30`, `T5_36` |
 | F20 | **Classroom Speed & Scale Optimizations (`O8`, `O9`, `O10`)** | R2 Survey 1, 3 | `T1_F20_01`–`05` (5) | `T2_F20_01`–`05` (5) | `T3_22`, `T3_32` | `T4_05`, `T4_11` | `T5_16`, `T5_17`, `T5_18`, `T5_28`, `T5_38` |
 | F21 | **SID-Aware `SYSTEM` Scheduled Tasks, Dual-Trigger/Late-Shutdown Guards & Restore (`S-23`–`S-26`)** | R2 Survey 1, 2, 3 | `T1_F21_01`–`05` (5) | `T2_F21_01`–`05` (5) | `T3_11`, `T3_13`, `T3_14`, `T3_17`, `T3_19`–`T3_21`, `T3_24`, `T3_25`, `T3_27`, `T3_31`, `T3_33`, `T3_34` | `T4_06`, `T4_12`, `T4_13`, `T4_16` | `T5_07`, `T5_09`, `T5_10`, `T5_14`, `T5_15`, `T5_19`, `T5_34`, `T5_40` |
 | F22 | **Anti-Cheat Browser DoH/Copilot Lockdown & 2025–2026/KR AI Domain Expansion (`S-27`)** | R2 Survey 2, 3 | `T1_F22_01`–`05` (5) | `T2_F22_01`–`05` (5) | `T3_19`, `T3_21`, `T3_25`, `T3_26`, `T3_28`, `T3_31` | `T4_01`, `T4_14`, `T4_15` | `T5_08`, `T5_10`, `T5_20`–`T5_23`, `T5_27`, `T5_39` |
-| F23 | **Expanded 5-Tier Modular Verification, Mutation & Live E2E Suite (`tests/contestsetup_tests/`)** | R2 Survey 1, 2, 3 | 100 Tests | 100 Tests | 34 Tests | 16 Tests | `T5_01`–`T5_41` (41) |
+| F23 | **Expanded 5-Tier Modular Verification, Mutation & Live E2E Suite (`tests/contestsetup_tests/`)** | R2 Survey 1, 2, 3 | 100 Tests | 100 Tests | 34 Tests | 16 Tests | `T5_01`–`T5_42` (42) |
 
 ---
 
-## Test Tiers (`291` Total Automated Tests)
+## Test Tiers (`292` Total Automated Tests)
 
 ### Tier 1 — Feature Coverage (`100` Tests: Category-Partition Method)
 - **Volume**: **100 test cases** (5 test cases per feature across `F1`–`F14` and `F17`–`F22`).
@@ -62,10 +62,10 @@
   - `T4_15`: Active exam anti-cheat bypass attempt blocked across direct `Code.exe`, sideloaded VSIX, Browser DoH, and 2026/Korean AI domains (`grok.com`, `wrtn.ai`, `clova-x.naver.com`, `aistudio.google.com`, `api2.cursor.sh`).
   - `T4_16`: Non-KST student laptop (`UTC-08:00` PST) normalized to simultaneous `2026-11-23T10:00:00Z`–`11:30:00Z` UTC exam window.
 
-### Tier 5 — White-Box Adversarial, Mutation Hardening & Live `pwsh` E2E (`41` Tests: `F16` + `F23`)
-- **Volume**: **41 adversarial, mutation & live `pwsh` E2E tests** (`T5_01`–`T5_41`).
+### Tier 5 — White-Box Adversarial, Mutation Hardening & Live `pwsh` E2E (`42` Tests: `F16` + `F23`)
+- **Volume**: **42 adversarial, mutation & live PowerShell E2E tests** (`T5_01`–`T5_42`).
 - **Scope (`T5_01`–`T5_34`, `tier5_adversarial.py`)**: Win32 `CommandLineToArgvW` round-trip fuzzing of `Quote-ProcessArgument`; JSONC multi-BOM/whitespace/unterminated-`/*` EOF torture (`T5_02`, `T5_26`); PS 5.1 `ConvertTo-Json`/`ConvertFrom-Json` pipeline ban; pure 7-bit ASCII negative mutation checks; `extract_function_body` here-string torture; negative parameter-set conflict mutation tests; `..` path-traversal & sibling-prefix fuzzing; `hosts` post-write AV/Defender tamper read-back & `.*\z` orphan-marker regex (`T5_08`, `T5_27`); `HKU\.DEFAULT` (`S-1-5-18`) write prohibition & `REG_EXPAND_SZ` `SetValue` enforcement (`T5_09`); 6-window dual `-StartWhenAvailable` state machine (`T5_10`); non-destructive `DryRun`/`Status`/`Verify` call-graph audit (`T5_11`); `product.json` comment-spoof & VS Code 1.97+ decoy `data` trap rejection (`T5_12`, `T5_30`); Online Judge & installer collateral-damage guard (`T5_21`); StrictMode unbraced `$Var?` interpolation ban (`T5_22`); function-scope `$PSBoundParameters` ban & `-DurationHours <= 0` guard (`T5_23`); PS 5.1 scalar-unwrapping `@(...)` `.Count` guard (`T5_24`); `-LiteralPath` & `.PSObject.Properties` shortcut-manifest guards (`T5_25`); `Expand-ArchiveFast` Tier-2/3 pre-clean (`T5_28`); `CONTEST_MUTEX_OWNER_PID` dead/self-PID spoofing simulation (`T5_29`); negative mutation meta-test (`T5_31`); `Set-StrictMode -Version 2.0` enforcement across all 20 `.ps1` files (`T5_32`); live-`pwsh` shallow-scope regression for `Get-ContestVariableValue` (`T5_33`); and live-`pwsh` 20-script AST / PS 5.1 syntax & switch-binding audit plus `C-1` standalone `StrictMode 2.0` dot-source defaults and `C-2` air-gapped `pacman -U` `.sig` exclusion (`T5_34`).
-- **Scope (`T5_35`–`T5_41`, `live_pwsh_e2e.py`)**:
+- **Scope (`T5_35`–`T5_42`, `live_pwsh_e2e.py`)**:
   - `T5_35`: Live `pwsh` dot-sources `common.ps1` + `lib/*.ps1`, validates KST/UTC `Test-ExamScheduleConfiguration`, `Update-ContestStateManifest`/`Read-ContestStateManifest` round-trip, and `Invoke-ContestEnvironmentAudit` transition from `AllReady = $false` (`0/7` on empty root) to `AllReady = $true` (`7/7` with `$ContestHostsPathOverride` and shimmed `Get-ScheduledTask`).
   - `T5_36`: Live `pwsh` exercises `setup-vscode.ps1` + `lib/vscode-workspace.ps1` against a modern `<commit>/resources/app/product.json` portable layout, verifying `Initialize-ContestVSCodeIsolated`, `Set-VSCodeAiHiddenSettings`, `Set-VSCodeDisplayLanguageKorean`, `Remove-BlockedVSCodeExtensions`, `Disable-VSCodeMarketplace`/`Restore-VSCodeMarketplace` idempotency, and `.vscode/{tasks,launch,c_cpp_properties}.json` generation.
   - `T5_37`: Live `pwsh` runs `setup-wrappers.ps1` (`Create-CommandWrappers`), verifies `@setlocal` and non-shadowing PATH precedence across all 9 `.cmd` wrappers, and compiles & executes real C++14 (`g++ -std=gnu++14`), C++20 (`g++ -std=gnu++20`), and Python 3 (`python3`) programs.
@@ -73,13 +73,14 @@
   - `T5_39`: Live `pwsh` exercises `ai-hosts-block.ps1` + `lib/browser-policies.ps1` against a temporary `hosts` file containing `10.0.0.5 judge.internal.ac.kr`, confirming idempotent double-apply (`>= 500` active IPv4/IPv6 rules), preservation of `judge.internal.ac.kr`, byte-for-byte SHA-256 identity upon restore, and 22 (`13` core + `9` extended) browser policy specifications.
   - `T5_40`: Live `pwsh` exercises `restore-and-cleanup.ps1` (`Backup-ContestWorkspaceSources` `<= 5 MB` source filter, `Restore-Msys2ContestConfiguration` `.contest-bak` restoration, `Restore-VSCodeProductJsonWhenKept`, `Remove-ContestEntriesFromPathScope`, and `ConvertTo-LocalScheduleTime` `> 25m` late-boot shutdown suppression).
   - `T5_41`: Repository structural modularity & zero-duplication contract gate — enforces all 8 `lib/*.ps1` modules `< 600` lines, `common.ps1` `< 300` lines, `tests/run_tests.py` `< 200` lines, zero inline duplication of shared JSON helpers, complete `docs/STRUCTURE.md` coverage, and 100% 7-bit ASCII / UTF-8 no-BOM / LF across all 20 `.ps1` files.
+  - `T5_42`: Windows Full-Lifecycle CI/CD & E2E Harness Contract Gate — verifies `.github/workflows/ci.yml` executes `tests/run_tests.py --tier all --strict` under both PowerShell 7 and Windows PowerShell 5.1 (`CONTEST_PWSH`) plus the real `windows-lifecycle-e2e` job on `windows-latest`, and validates `tests/windows_lifecycle_e2e.ps1` (`S-19` pure 7-bit ASCII/no-BOM/LF, `StrictMode 2.0`, PS 5.1 AST parse, full setup + `SYSTEM` restore coverage).
 
 ---
 
 ## Running the Test Suite
 
 ```bash
-# Run all 5 tiers (291 total tests, without creating __pycache__)
+# Run all 5 tiers (292 total tests, without creating __pycache__)
 python3 -B tests/run_tests.py --tier all
 
 # CI mode: fail instead of skip when the live pwsh probes & E2E tests (T5_33..T5_40) cannot run
