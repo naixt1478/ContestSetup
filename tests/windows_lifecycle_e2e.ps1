@@ -58,8 +58,11 @@ function Invoke-Ps51Script {
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   $exitCode = 1
+  $global:LASTEXITCODE = 0
   try {
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ScriptPath @Arguments
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object {
+      Write-Host ([string]$_)
+    }
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   } finally {
     $ErrorActionPreference = $prevEap
@@ -222,16 +225,42 @@ function Dump-ContestDiagnostics {
     }
   } catch {}
   try {
-    Write-Host '--- Logs Tail ---'
-    $logRoots = @(
+    Write-Host '--- ContestRoot Tree & Manifest ---'
+    if (Test-Path -LiteralPath $ContestRoot) {
+      Get-ChildItem -LiteralPath $ContestRoot -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host ("  {0} ({1})" -f $_.FullName, $(if ($_.PSIsContainer) { 'DIR' } else { "$($_.Length)B" }))
+      }
+      $manifestPath = Join-Path $ContestRoot 'state\install-manifest.json'
+      if (Test-Path -LiteralPath $manifestPath) {
+        Write-Host "MANIFEST: $manifestPath"
+        Get-Content -LiteralPath $manifestPath -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+      }
+    } else {
+      Write-Host "ContestRoot does not exist: $ContestRoot"
+    }
+  } catch {}
+  try {
+    Write-Host '--- ContestSetup Logs & Error Files ---'
+    $contestLogRoots = @(
       (Join-Path $ContestRoot 'logs'),
+      (Join-Path $env:TEMP 'ContestSetup-Logs'),
+      (Join-Path $env:SystemRoot 'Temp\ContestSetup-Logs')
+    )
+    foreach ($clr in ($contestLogRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) })) {
+      foreach ($clf in @(Get-ChildItem -Path $clr -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 8)) {
+        Write-Host "CONTEST LOG: $($clf.FullName)"
+        Get-Content -LiteralPath $clf.FullName -Tail 120 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+      }
+    }
+    Write-Host '--- Temp .log Files Tail ---'
+    $tempRoots = @(
       $env:TEMP,
       (Join-Path $env:SystemRoot 'Temp')
     )
-    foreach ($lr in ($logRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) })) {
-      foreach ($lf in @(Get-ChildItem -Path $lr -Filter '*.log' -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 4)) {
+    foreach ($lr in ($tempRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) })) {
+      foreach ($lf in @(Get-ChildItem -Path $lr -Filter '*.log' -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 3)) {
         Write-Host "LOG FILE: $($lf.FullName)"
-        Get-Content -LiteralPath $lf.FullName -Tail 60 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+        Get-Content -LiteralPath $lf.FullName -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
       }
     }
   } catch {}
@@ -658,7 +687,7 @@ Write-Output 'STUDENT_TOOLCHAIN_OK'
   Write-Utf8NoBomText -Path $manualSrc -Content 'int main(){return 0;}'
 
   [void](Invoke-Ps51Script -ScriptPath $InstallEnvPs1 -Arguments @('-Mode', 'Restore', '-Root', $ContestRoot, '-NoPause'))
-  Start-Sleep -Seconds 2
+  Wait-ContestRestoreAndCleanupComplete -ContestRoot $ContestRoot -TimeoutSeconds 120
   $hostsFinal = Read-Utf8TextSafe -Path $HostsPath
   Assert-True ($hostsFinal -notmatch 'CP_CONTEST_AI_BLOCKLIST_BEGIN') 'Manual -Mode Restore left CP_CONTEST_AI_BLOCKLIST_BEGIN behind'
   Assert-True ($hostsFinal -match [regex]::Escape($JudgeHostLine)) 'Manual -Mode Restore lost custom judge host line'
