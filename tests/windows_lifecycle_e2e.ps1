@@ -542,10 +542,11 @@ match cmd:
 $ErrorActionPreference = 'Stop'
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
 foreach ($cmdName in @('g++14', 'g++17', 'g++20', 'g++', 'gcc', 'gdb', 'python', 'python3', 'cat', 'code')) {
-  $resolved = Get-Command $cmdName -ErrorAction Stop | Select-Object -First 1
+  $resolved = Get-Command $cmdName -CommandType Application -ErrorAction Stop | Select-Object -First 1
+  if ([string]::IsNullOrWhiteSpace($resolved.Source)) { throw "Empty Source for $cmdName" }
   Write-Host ("CMD {0} -> {1}" -f $cmdName, $resolved.Source)
 }
-$pySrc = (Get-Command python3 -ErrorAction Stop | Select-Object -First 1).Source
+$pySrc = (Get-Command python3 -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 if ($pySrc -notlike 'C:\CPTools*') { throw "python3 resolved outside C:\CPTools: $pySrc" }
 & g++20 $env:CS_CPP_SRC -o $env:CS_CPP_EXE
 if ($LASTEXITCODE -ne 0) { throw "g++20 compile failed ($LASTEXITCODE)" }

@@ -209,7 +209,7 @@ function Assert-ContestCommandResolution
 
   foreach ($CmdName in $CommandsToVerify)
   {
-    $Resolved = Get-Command $CmdName -ErrorAction SilentlyContinue | Select-Object -First 1
+    $Resolved = Get-Command $CmdName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $Resolved -or [string]::IsNullOrWhiteSpace($Resolved.Source))
     {
       throw "Command '$CmdName' could not be resolved from PATH."

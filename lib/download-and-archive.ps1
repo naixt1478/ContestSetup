@@ -58,7 +58,7 @@ function Invoke-NativeCommand {
     [switch]$StreamOutput
   )
 
-  $CmdObj = Get-Command $FilePath -ErrorAction SilentlyContinue | Select-Object -First 1
+  $CmdObj = Get-Command $FilePath -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $CmdObj -and -not (Test-Path -LiteralPath $FilePath)) {
     throw "Native command not found: $FilePath"
   }

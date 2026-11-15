@@ -386,6 +386,7 @@ def register_tests(ps: PowerShellInspector, sim: BehavioralSimulator, repo_root:
     @register("T1_F10_04", 1, "F10", "Run-SmokeTests verifies command resolution via Get-Command for all 10 contest commands")
     def _():
         res_body = ps.extract_function_body("setup-wrappers.ps1", "Assert-ContestCommandResolution")
+        assert "-CommandType Application" in res_body
         for cmd in ("g++", "g++14", "g++17", "g++20", "gcc", "gdb", "python", "python3", "cat", "code"):
             assert f"'{cmd}'" in res_body
 
@@ -489,7 +490,7 @@ def register_tests(ps: PowerShellInspector, sim: BehavioralSimulator, repo_root:
     @register("T1_F13_04", 1, "F13", "Invoke-NativeCommand uses Test-Path -LiteralPath and ProcessStartInfo cmd.exe wrapper for .cmd/.bat")
     def _():
         body = ps.extract_function_body("common.ps1", "Invoke-NativeCommand")
-        assert "Test-Path -LiteralPath" in body and "ProcessStartInfo" in body
+        assert "Test-Path -LiteralPath" in body and "ProcessStartInfo" in body and "-CommandType Application" in body
 
     @register("T1_F13_05", 1, "F13", "common.ps1 enables Set-StrictMode -Version 2.0 and configures UTF-8 console encoding")
     def _():
